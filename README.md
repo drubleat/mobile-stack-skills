@@ -78,27 +78,44 @@ So a "add a paywall" task loads ~3 files — the other 120+ cost **zero tokens**
 
 ## Getting started
 
+Claude Code discovers skills from a `skills/` directory — either personal (`~/.claude/skills/`, available in every project) or per-project (`<project>/.claude/skills/`). Each skill is a folder containing a `SKILL.md`. So installing means putting these two skill folders into one of those locations.
+
 ### 1. Clone
 
 ```bash
 git clone https://github.com/drubleat/mobile-stack-skills.git
+cd mobile-stack-skills
 ```
 
-### 2. Point Claude Code at it
+### 2. Install the skills
 
-```jsonc
-// .claude/settings.json  (per-project, or ~/.claude/settings.json for global)
-{
-  "skills": [
-    "/path/to/mobile-stack-skills/mobile-stack-toolkit",
-    "/path/to/mobile-stack-skills/supabase-postgres-best-practices"
-  ]
-}
+**Option A — personal (recommended, available across all your projects):**
+
+```bash
+mkdir -p ~/.claude/skills
+cp -R mobile-stack-toolkit ~/.claude/skills/
+cp -R supabase-postgres-best-practices ~/.claude/skills/
 ```
 
-### 3. Just build
+**Option B — single project only:**
 
-Ask naturally — Claude loads the right reference automatically:
+```bash
+mkdir -p /path/to/your-project/.claude/skills
+cp -R mobile-stack-toolkit /path/to/your-project/.claude/skills/
+cp -R supabase-postgres-best-practices /path/to/your-project/.claude/skills/
+```
+
+> If `~/.claude/skills/` didn't exist before, restart Claude Code once so it starts watching the new directory. After that, edits and additions are picked up live.
+>
+> Prefer to keep this repo as the single source of truth? Symlink instead of copying (`ln -s "$(pwd)/mobile-stack-toolkit" ~/.claude/skills/mobile-stack-toolkit`). Note that symlinks pointing outside your project may trigger per-file read permission prompts — copying avoids them.
+
+### 3. Verify
+
+Open Claude Code and type `/` — you should see `mobile-stack-toolkit` and `supabase-postgres-best-practices` in the skill list.
+
+### 4. Just build
+
+Ask naturally — Claude loads the right reference automatically, no file paths needed:
 
 > *"Set up an Expo + Supabase app with email auth and a RevenueCat paywall."*
 > *"Add a vector search over my documents table."*
