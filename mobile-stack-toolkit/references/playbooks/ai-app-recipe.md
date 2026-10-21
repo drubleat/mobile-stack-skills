@@ -1,149 +1,25 @@
 ---
-title: AI-first app recipe: hard paywall + viral loop
+title: "AI app: access, quota and release sequence"
 impact: HIGH
-impactDescription: "Architecture and decision map for AI apps with hard paywalls; covers edge proxy, entitlement gate order, and viral mechanics"
-tags: playbooks, ai, paywall, revenuecat, viral, architecture
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# AI-first app recipe: hard paywall + viral loop
+# AI app: access, quota and release sequence
 
-This playbook covers the specific architecture and decisions for building an AI-powered app with a hard paywall (no free tier, trial only) and a viral mechanism. Common persona: productivity tool, creative assistant, or niche AI advisor.
+Choose trial/free/paid behavior from the product requirement; a hard paywall is not a universal default. Preserve the existing backend and select models through measured quality, latency and cost tests rather than unsourced price ratios.
 
-## The core pattern
+1. Implement the core feature with [server credentials](../ai/edge-proxy-architecture.md), bounded inputs/output and cancellation.
+2. Add [guardrails](../ai/guardrails.md), using its single quota SQL asset. Do not create another function with the same signature and an incompatible return type. Paid users still need spend limits.
+3. Configure [RevenueCat identity](../monetization/sdk-integration.md) and [webhook reconciliation](../monetization/webhooks-supabase.md). Distinguish subscription entitlement from usage quota.
+4. Enforce paid access on the server before reserving quota/calling the provider. Treat dependency failures as unavailable, not free access. Use explicit 401/403/429/503 responses with a stable app error contract.
+5. Build a paywall using localized store prices and actual offer eligibility. Test purchase, restore, cancellation, grace period, refund and delayed/reordered webhooks.
+6. Measure completion, latency, failure and cost with redacted events. Separate purchase intent, verified purchase and consumption metrics.
 
-```
-Viral hook → hard paywall → AI value delivery → retention loop
-```
+Sharing is opt-in and should preview the content. Referrals need server-validated eligibility, fraud controls and atomic reward deduplication. Show only genuine usage counts, reviews, discounts and deadlines. Schedule reminders from actual entitlement dates and user preferences, not fixed guesses from install day.
 
-Users arrive via word-of-mouth or organic search. They see the AI capability, hit a trial limit or paywall immediately, convert, then stay for the ongoing AI value.
+Before release, run the [store sequence](zero-to-store.md). No duplicate schema or pseudo-complete proxy lives in this playbook: load only the domain reference needed for the next step.
 
-## Stack decisions for this persona
+## Sources
 
-| Decision | Choice | Reason |
-|---|---|---|
-| Auth | Supabase OTP (email only) | No friction; no password to forget |
-| Free access | 3–5 free requests only | Enough to demonstrate value; forces conversion |
-| Paywall type | Hard paywall after trial | No freemium hedging; forces clear monetization |
-| AI provider | Gemini 3.5 Flash for volume, GPT-5.4 for quality | Flash is 10x cheaper; use GPT for flagship features |
-| Quota tracking | `usage_counters` table + Edge Function RPC | Atomic increments; server-enforced |
-| Paywall UI | RevenueCat remote paywall | Iterate copy without app update |
-| Push | Opt-in only; re-engagement only | AI apps don't benefit from daily push spam |
-
-## Schema for trial + hard paywall
-
-```sql
--- Usage counter (server-enforced)
-create table usage_counters (
-  user_id uuid primary key references auth.users,
-  ai_requests int not null default 0,
-  reset_at timestamptz not null default (now() + interval '30 days')
-);
-
--- Server-side check before every AI call:
-create or replace function increment_ai_usage(p_user_id uuid, p_limit int)
-returns boolean language plpgsql security definer as $$
-declare
-  v_count int;
-  v_is_pro boolean;
-begin
-  -- Pro users bypass limit
-  select is_active into v_is_pro from subscriptions where user_id = p_user_id;
-  if coalesce(v_is_pro, false) then return true; end if;
-
-  update usage_counters
-    set ai_requests = ai_requests + 1
-    where user_id = p_user_id
-    returning ai_requests into v_count;
-
-  if not found then
-    insert into usage_counters (user_id, ai_requests) values (p_user_id, 1);
-    v_count := 1;
-  end if;
-
-  return v_count <= p_limit;
-end;
-$$;
-```
-
-## Edge Function: AI call with quota gate
-
-```ts
-// supabase/functions/ai-proxy/index.ts
-Deno.serve(async (req) => {
-  const jwt = req.headers.get('Authorization')?.replace('Bearer ', '');
-  const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-
-  const { data: { user } } = await supabase.auth.getUser(jwt);
-  if (!user) return new Response('Unauthorized', { status: 401 });
-
-  // Atomic quota check — returns false if limit exceeded
-  const { data: allowed } = await supabase.rpc('increment_ai_usage', {
-    p_user_id: user.id,
-    p_limit: 5,         // 5 free requests
-  });
-
-  if (!allowed) {
-    return new Response(JSON.stringify({ error: 'quota_exceeded' }), {
-      status: 402,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  // Call AI...
-  const body = await req.json();
-  const result = await callAI(body.prompt);
-  return new Response(JSON.stringify({ text: result }), {
-    headers: { 'Content-Type': 'application/json' },
-  });
-});
-```
-
-Client reads `status: 402` → shows paywall.
-
-## Viral loop mechanisms
-
-**Share output**: after AI generates content (a meal plan, a summary, a design critique), add a "Share" button. The shared content should include a watermark or attribution that drives installs.
-
-```ts
-// Share generated content with attribution
-await Share.share({
-  message: `${aiOutput}\n\n— Generated by ${appName}`,
-});
-```
-
-**Referral**: give both referrer and new user +5 free requests. Implemented as a `referrals` table and a deep link (`myapp://join?ref=USER_ID`).
-
-**Social proof**: show a counter ("10,000 recipes generated this week") on the paywall screen. Fetch from a public Supabase edge or a cached count.
-
-## Paywall conversion optimization
-
-- **Show 3 pricing options** (monthly, annual, lifetime if applicable). Annual at ~40% discount drives higher LTV.
-- **Free trial display**: "7-day free trial" on the subscribe button, price beneath it. Put the trial length in the button, not just the copy.
-- **Social proof on paywall**: "Join 50,000 users" or star rating.
-- **Urgency** (optional, use carefully): "Offer ends Sunday" — only if genuinely true.
-- **Restore button** always present (App Store requirement).
-
-A/B test paywall copy via RevenueCat remote paywalls — no app update needed.
-
-## Re-engagement push strategy
-
-AI apps succeed on habit formation. Push strategy:
-1. **Day 3 after install**: "Your first result is ready to share" (if they generated content).
-2. **Day 7 after trial**: "Your trial expires in 2 days" — if not subscribed.
-3. **Weekly**: "New AI capability: [feature]" — for subscribers only.
-
-Do NOT send daily engagement pushes — they increase uninstall rates for AI tools.
-
-## Metrics to track (Firebase Analytics events)
-
-| Event | When fired |
-|---|---|
-| `trial_start` | First AI request |
-| `quota_hit` | 402 response from Edge Function |
-| `paywall_viewed` | Paywall screen renders |
-| `purchase_started` | `purchasePackage()` called |
-| `purchase_completed` | RC webhook INITIAL_PURCHASE |
-| `share_output` | User taps share on AI result |
-| `referral_sent` | User shares referral link |
-
-Monitor `quota_hit → paywall_viewed → purchase_started → purchase_completed` funnel in Firebase Analytics to find drop-offs.
+Reviewed 2026-10-20: [RevenueCat webhooks](https://www.revenuecat.com/docs/integrations/webhooks), [OpenAI production practices](https://developers.openai.com/api/docs/guides/production-best-practices).

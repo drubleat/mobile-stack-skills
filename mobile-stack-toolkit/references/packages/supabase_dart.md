@@ -1,5 +1,5 @@
 ---
-title: supabase 2.12.2 — Dart client (no Flutter dependency)
+title: "supabase 2.12.2 — Dart client (no Flutter dependency)"
 impact: MEDIUM-HIGH
 impactDescription: "Use in non-Flutter Dart projects or server-side Dart; shares API shape with supabase_flutter"
 tags: dart, supabase, backend, non-flutter
@@ -7,7 +7,7 @@ tags: dart, supabase, backend, non-flutter
 
 # supabase — Dart client (no Flutter dependency)
 
-**Version:** 2.12.2  
+**Historical example baseline:** 2.12.2   — resolve a compatible installed version before using these snippets.
 **Platforms:** all Dart platforms (server, CLI, Flutter via supabase_flutter)
 
 ```yaml

@@ -1,5 +1,5 @@
 ---
-title: Structured output & tools — routing file
+title: "Structured output & tools — routing file"
 impact: MEDIUM
 impactDescription: "Router to structured-output.md and provider tool-use files"
 tags: ai, structured-output, tools, index

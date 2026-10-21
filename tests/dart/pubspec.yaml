@@ -1,0 +1,8 @@
+name: skill_snippet_check
+environment:
+  sdk: '>=3.10.0 <4.0.0'
+dependencies:
+  http: ^1.6.0
+  supabase: ^2.10.0
+dev_dependencies:
+  test: ^1.29.0

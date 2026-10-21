@@ -1,5 +1,5 @@
 ---
-title: firebase_storage 13.4.2 — Firebase Storage client
+title: "firebase_storage 13.4.2 — Firebase Storage client"
 impact: MEDIUM
 impactDescription: "Upload task monitoring, download URLs, and security rules integration"
 tags: flutter, firebase, storage, uploads
@@ -7,7 +7,7 @@ tags: flutter, firebase, storage, uploads
 
 # firebase_storage — Firebase file storage
 
-**Version:** 13.4.2  
+**Historical example baseline:** 13.4.2   — resolve a compatible installed version before using these snippets.
 **Platforms:** Android, iOS, macOS, Web, Windows
 
 ```yaml
@@ -57,6 +57,7 @@ final downloadUrl = await snapshot.ref.getDownloadURL();
 ```dart
 import 'dart:typed_data';
 
+// imageFile must already contain validated JPEG bytes; renaming does not convert HEIC/PNG.
 final Uint8List bytes = await imageFile.readAsBytes();
 final ref = storage.ref('images/$userId/${DateTime.now().millisecondsSinceEpoch}.jpg');
 
@@ -86,7 +87,9 @@ await ref.putString(base64EncodedData, format: PutStringFormat.base64);
 final task = ref.putFile(file);
 
 task.snapshotEvents.listen((TaskSnapshot snapshot) {
-  final progress = snapshot.bytesTransferred / snapshot.totalBytes;
+  final progress = snapshot.totalBytes > 0
+      ? snapshot.bytesTransferred / snapshot.totalBytes : 0.0;
+  if (!mounted) return;
   setState(() => _uploadProgress = progress);
 
   switch (snapshot.state) {
@@ -114,7 +117,7 @@ task.cancel();
 ## Download URL
 
 ```dart
-// Permanent URL (public bucket)
+// Long-lived bearer URL: anyone holding the token can download
 final url = await ref.getDownloadURL();
 
 // Use in CachedNetworkImage or Image.network
@@ -184,9 +187,10 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /avatars/{userId}/{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId
-                   && request.resource.size < 5 * 1024 * 1024;  // 5MB limit
+      allow read, delete: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null && request.auth.uid == userId
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
     }
   }
 }
@@ -195,6 +199,9 @@ service firebase.storage {
 ## Gotchas
 
 - Upload tasks survive widget rebuilds — a cancelled widget doesn't cancel the upload. Store the `UploadTask` reference outside the widget if you need to cancel on dispose.
-- `getDownloadURL()` returns a long-lived token URL. If Storage security rules change, previously generated URLs may be invalidated.
-- Download URLs are **not signed URLs** — they're permanent, publicly-accessible tokens tied to the file. To restrict access, use Firebase Storage Security Rules to make the bucket private, then use `ref.getData()` (authenticated) or short-lived signed URLs.
+- `getDownloadURL()` returns a long-lived bearer token URL. Rule changes do not revoke an already shared token; revoke/rotate the token or delete the object when access must end. Do not log these URLs.
+- For private files, use authenticated SDK reads such as `getData()` under owner rules, or an authorized backend issuing short-lived signed URLs. Neither mechanism makes an already issued download token private.
+- Cancel the progress subscription on dispose; decide separately whether the upload itself should continue. MIME metadata checks do not inspect bytes, so validate/transcode content before serving untrusted uploads.
 - Web platform: CORS must be configured on the Firebase Storage bucket for browser uploads.
+
+Reviewed 2026-10-21: [Firebase downloads](https://firebase.google.com/docs/storage/flutter/download-files); see the linked Storage architecture reference for access and token lifecycle.

@@ -1,7 +1,7 @@
 ---
-title: auth.uid() and auth.jwt() — correct usage in SQL
+title: "auth.uid() and auth.jwt() — correct usage in SQL"
 impact: CRITICAL
-impactDescription: "Bare auth.uid() is volatile and re-evaluated per row; wrong JWT claim paths return NULL silently instead of blocking access"
+impactDescription: "Repeated auth helper evaluation can be expensive; wrong JWT claim paths return NULL silently instead of blocking access"
 tags: security, rls, auth, postgres, jwt
 ---
 
@@ -10,10 +10,10 @@ tags: security, rls, auth, postgres, jwt
 ## Always wrap in `(select ...)`
 
 ```sql
--- ❌ Volatile — called once per row
+-- May be evaluated repeatedly depending on the plan
 user_id = auth.uid()
 
--- ✅ Stable — called once per query
+-- An uncorrelated scalar subquery can produce a cached initplan
 user_id = (select auth.uid())
 ```
 
@@ -52,21 +52,24 @@ begin
 
   claims := event->'claims';
   if org_id is not null then
-    claims := jsonb_set(claims, '{app_metadata,org_id}', to_jsonb(org_id));
+    claims := jsonb_set(claims, '{app_metadata}',
+      coalesce(claims->'app_metadata', '{}'::jsonb) || jsonb_build_object('org_id', org_id));
   end if;
   return jsonb_set(event, '{claims}', claims);
 end;
 $$;
 
 -- Grant execute to supabase_auth_admin
-grant execute on function public.custom_access_token_hook to supabase_auth_admin;
+revoke all on function public.custom_access_token_hook(jsonb) from public, anon, authenticated;
+grant execute on function public.custom_access_token_hook(jsonb) to supabase_auth_admin;
+-- Also grant the hook role schema/table access and any required RLS policy.
 ```
 
 Then register in Supabase Dashboard → Authentication → Hooks → Custom Access Token.
 
 ## Null safety in policies
 
-`auth.uid()` returns `NULL` for anonymous (unauthenticated) requests. A policy like `user_id = (select auth.uid())` correctly blocks anonymous users because `NULL = anything` is always `FALSE` in SQL.
+`auth.uid()` returns `NULL` for anonymous (unauthenticated) requests. A policy like `user_id = (select auth.uid())` correctly blocks anonymous users because comparison with NULL yields UNKNOWN, which does not pass a policy.
 
 But be explicit for clarity:
 

@@ -1,5 +1,5 @@
 ---
-title: Forms & validation — react-hook-form + zod
+title: "Forms & validation — react-hook-form + zod"
 impact: HIGH
 impactDescription: "Every app has forms (login, signup, profile, checkout); the Controller + zod pattern prevents re-render storms and gives type-safe validation in one place"
 tags: forms, react-hook-form, zod, validation, expo, react-native, typescript
@@ -9,7 +9,7 @@ tags: forms, react-hook-form, zod, validation, expo, react-native, typescript
 
 The standard React Native form stack: **react-hook-form** for state (uncontrolled, minimal re-renders) + **zod** for schema validation + **@hookform/resolvers** to bridge them. One schema gives you both runtime validation and a TypeScript type.
 
-**Versions (June 2026):** `react-hook-form` v7.79.x, `zod` v4.4.x, `@hookform/resolvers` v5.x
+**Historical example baselines (resolve compatible versions):** `react-hook-form` v7.79.x, `zod` v4.4.x, `@hookform/resolvers` v5.x
 
 ---
 
@@ -38,7 +38,7 @@ import { View, TextInput, Text, Button } from 'react-native';
 // 1. Schema — single source of truth
 const loginSchema = z.object({
   email: z.string().email('Enter a valid email'),
-  password: z.string().min(8, 'At least 8 characters'),
+  password: z.string().min(1, 'Enter your password'),
 });
 
 // 2. Type inferred from the schema
@@ -48,6 +48,7 @@ export function LoginScreen() {
   const {
     control,
     handleSubmit,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
@@ -56,7 +57,8 @@ export function LoginScreen() {
 
   async function onSubmit(data: LoginForm) {
     // data is fully typed and validated here
-    await supabase.auth.signInWithPassword(data);
+    const { error } = await supabase.auth.signInWithPassword(data);
+    if (error) setError('root', { message: 'Sign-in failed. Check your details and try again.' });
   }
 
   return (
@@ -94,6 +96,7 @@ export function LoginScreen() {
         <Text style={{ color: 'red' }}>{errors.password.message}</Text>
       )}
 
+      {errors.root && <Text>{errors.root.message}</Text>}
       <Button
         title={isSubmitting ? 'Signing in...' : 'Sign In'}
         onPress={handleSubmit(onSubmit)}
@@ -177,7 +180,7 @@ const signupSchema = z
     password: z.string().min(8),
     confirmPassword: z.string(),
     acceptTerms: z.boolean().refine((v) => v === true, 'You must accept the terms'),
-    role: z.enum(['user', 'admin']),
+    // Privileged roles are assigned by the server, never by signup input.
     bio: z.string().max(160).optional(),
     website: z.string().url().or(z.literal('')),  // optional URL
   })
@@ -214,7 +217,7 @@ When the backend rejects (e.g. "email already registered"), map it back to the f
 
 ```tsx
 async function onSubmit(data: SignupForm) {
-  const { error } = await supabase.auth.signUp(data);
+  const { error } = await supabase.auth.signUp({ email: data.email, password: data.password });
   if (error?.message.includes('already registered')) {
     setError('email', { message: 'This email is already in use' });
     return;
@@ -263,9 +266,11 @@ For mobile, `mode: 'onBlur'` is usually the best UX — errors appear after the 
 
 ## Gotchas
 
-- **Use `Controller`, never `register`, in React Native.** `register` is web/DOM-only and silently does nothing with `TextInput`.
+- **Prefer `Controller`/`useController` for controlled React Native inputs.** DOM-style ref wiring is not the React Native integration.
 - **zod v4 + older resolvers bug:** with `@hookform/resolvers` below v4, RN can throw `"expected a Zod schema"` and silently skip `onSubmit`. Fix: upgrade `@hookform/resolvers` to v5+, or as a fallback import `import * as z from 'zod/v3'`.
 - **`z.coerce.number()` for numeric inputs** — `TextInput` returns strings; without coercion, number validations always fail.
 - **`handleSubmit(onSubmit)` not `onSubmit`** — pass the wrapped handler to `onPress`, or validation never runs.
 - **`defaultValues` should be set** — uncontrolled inputs without defaults can start as `undefined` and trigger React's controlled/uncontrolled warning.
 - **Don't `watch()` everything** — `watch()` with no args subscribes to all fields and re-renders on every keystroke, defeating react-hook-form's performance advantage. Watch specific fields only.
+
+For schemas with coercion/transforms, use separate `z.input<typeof schema>` and `z.output<typeof schema>` generics in useForm. Login validation must accept existing valid passwords; apply current password policy to signup/reset. Manual register is possible, but Controller/useController is the straightforward controlled-input integration.

@@ -1,112 +1,36 @@
 ---
-title: Expo Push: expo-notifications + Expo Push API
+title: "Expo push setup and receipts"
 impact: HIGH
-impactDescription: "Simplest push setup for Expo apps; single token works for both iOS and Android via Expo's relay service"
-tags: push, expo-notifications, expo-push-api
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# Expo Push: expo-notifications + Expo Push API
+# Expo push setup and receipts
 
-The simplest push setup: one token, one API, no Firebase needed.
-
-## Install & configure
-
-```bash
-npx expo install expo-notifications expo-device
-```
-
-Add to `app.config.ts` plugins:
-```ts
-plugins: [
-  ['expo-notifications', {
-    icon: './assets/notification-icon.png',  // white on transparent, Android
-    color: '#ffffff',
-    sounds: ['./assets/notification.wav'],
-  }],
-]
-```
-
-## Get the push token
+Expo Push Service uses Expo push tokens and still requires native APNs/FCM credentials. Use a development build for remote push testing; Expo Go availability is SDK/platform-dependent and is not a release validation environment.
 
 ```ts
 import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
 import Constants from 'expo-constants';
-
-export async function registerForPushNotifications(): Promise<string | null> {
-  if (!Device.isDevice) return null;   // simulators don't get real tokens
-
-  const { status: existing } = await Notifications.getPermissionsAsync();
-  const { status } = existing === 'granted'
-    ? { status: existing }
-    : await Notifications.requestPermissionsAsync();
-
-  if (status !== 'granted') return null;
-
-  const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-  const token = await Notifications.getExpoPushTokenAsync({ projectId });
-  return token.data;   // 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]'
+import { Platform } from 'react-native';
+if (Platform.OS === 'android') {
+  await Notifications.setNotificationChannelAsync('default', {
+    name: 'Default', importance: Notifications.AndroidImportance.DEFAULT,
+  });
 }
+const permission = await Notifications.requestPermissionsAsync();
+if (!permission.granted) throw new Error('Notifications not enabled');
+const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+if (!projectId) throw new Error('Missing EAS project ID');
+const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
 ```
 
-**`projectId` is required** — without it tokens are invalid and the Push API rejects them silently.
+This is a registration fragment; request permission at a relevant user action and gracefully support denial. Store the token per installation with ownership and environment. Handle refresh and account switching. Do not pass Expo tokens to the FCM HTTP API or FCM tokens to Expo's push endpoint.
 
-## Store the token on your backend
+Configure the foreground notification handler with the fields supported by the installed SDK; recent SDKs use `shouldShowBanner` and `shouldShowList`, plus sound/badge decisions. Remove received/response listeners on cleanup. Handle initial notification responses only after navigation/auth restoration and deduplicate them.
 
-```ts
-const token = await registerForPushNotifications();
-if (token && user) {
-  await supabase.from('profiles').update({ push_token: token }).eq('id', user.id);
-}
-```
+A push ticket acknowledges acceptance, not device delivery. Retain ticket IDs, fetch push receipts, handle errors such as DeviceNotRegistered and remove only the affected installation. Respect documented batching, limits and retry/backoff rules. See [server send](server-send.md).
 
-Re-register on every app launch — tokens rotate on reinstall/OS rotation.
+## Sources
 
-## Foreground display handler (set at app start)
-
-```ts
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
-```
-
-Without this, foreground notifications are silently dropped.
-
-## Send via Expo Push API (from your server)
-
-```ts
-// From a Supabase Edge Function
-const messages = [{
-  to: pushToken,
-  title: 'New message',
-  body: 'You have a new message!',
-  data: { screen: 'chat', roomId: '123' },
-  sound: 'default',
-  badge: 1,
-  priority: 'high',
-}];
-
-const res = await fetch('https://exp.host/--/api/v2/push/send', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-  body: JSON.stringify(messages),
-});
-const { data } = await res.json();
-// data[0].status === 'ok' | 'error'
-// if error: data[0].details.error === 'DeviceNotRegistered' → delete stale token
-```
-
-Batch up to 100 messages per request. Handle `DeviceNotRegistered` by removing the token from your DB.
-
-## Limitations vs FCM direct
-
-- Expo Push relay adds one hop (your server → Expo → APNs/FCM → device).
-- Silent/data-only messages are less reliable.
-- Less priority and TTL control.
-- Tokens can change unexpectedly — always handle `DeviceNotRegistered`.
-
-For more control → [fcm-setup.md](fcm-setup.md).
+Reviewed 2026-10-20: [Expo push setup](https://docs.expo.dev/push-notifications/push-notifications-setup/), [sending notifications](https://docs.expo.dev/push-notifications/sending-notifications/).

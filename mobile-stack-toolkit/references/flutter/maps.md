@@ -1,13 +1,13 @@
 ---
-title: Maps: google_maps_flutter 2.17.x
+title: "Maps: google_maps_flutter"
 impact: MEDIUM
-impactDescription: "API key must be restricted by bundle ID/package name before production; debug key works locally but breaks on device"
+impactDescription: "Restrict native API keys, request location only when needed, and handle map/controller lifecycle"
 tags: flutter, maps, google-maps, location
 ---
 
 # Maps: google_maps_flutter
 
-Version: `google_maps_flutter: ^2.17.1`
+Resolve `google_maps_flutter` and `geolocator` against the app SDK; inspect their platform setup guides.
 
 ## Setup
 
@@ -24,23 +24,7 @@ Version: `google_maps_flutter: ^2.17.1`
     android:value="${MAPS_API_KEY}" />
 ```
 
-```xml
-<!-- ios/Runner/AppDelegate.swift (or AppDelegate.m) -->
-<!-- Add before GeneratedPluginRegistrant: -->
-GMSServices.provideAPIKey("YOUR_IOS_MAPS_API_KEY")
-```
-
-For Flutter with dart-define:
-
-```dart
-// lib/main.dart — iOS only
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-
-// Call before runApp on iOS
-if (Platform.isIOS) {
-  // API key is injected via native AppDelegate, not Dart
-}
-```
+In the native iOS AppDelegate, import `GoogleMaps` and call `GMSServices.provideAPIKey(...)` before registering plugins. Supply the Android manifest placeholder through Gradle; a Dart `--dart-define` does not automatically create a native manifest placeholder or configure the iOS SDK. Restrict Android keys by package **and signing certificate SHA-1** (including Play App Signing), iOS keys by bundle ID, and each key to the required APIs.
 
 ## Basic map
 
@@ -55,7 +39,7 @@ GoogleMap(
   onMapCreated: (GoogleMapController controller) {
     _controller.complete(controller);
   },
-  myLocationEnabled: true,
+  myLocationEnabled: locationPermissionGranted, // app state; false until permission is granted
   myLocationButtonEnabled: true,
 )
 ```
@@ -90,6 +74,9 @@ setState(() {});
 ## Controlling camera
 
 ```dart
+import 'dart:async';
+import 'dart:math';
+
 final Completer<GoogleMapController> _controller = Completer();
 
 // Animate to position
@@ -102,6 +89,11 @@ Future<void> animateTo(LatLng target) async {
 
 // Fit multiple markers in view
 Future<void> fitMarkers(List<LatLng> positions) async {
+  if (positions.isEmpty) return;
+  if (positions.length == 1) {
+    await animateTo(positions.single);
+    return;
+  }
   final controller = await _controller.future;
   final bounds = _boundsFromLatLng(positions);
   await controller.animateCamera(
@@ -118,6 +110,8 @@ LatLngBounds _boundsFromLatLng(List<LatLng> points) {
   );
 }
 ```
+
+This min/max bounds helper is for local points that do not cross the antimeridian. Handle date-line crossing separately. Fit bounds only after the map has a nonzero layout size, and dispose the retained controller when its owning screen is disposed.
 
 ## Polylines (routes)
 
@@ -141,28 +135,34 @@ GoogleMap(
 ## User location
 
 ```dart
-import 'package:permission_handler/permission_handler.dart';
 import 'package:geolocator/geolocator.dart';  // separate package
 
 Future<LatLng?> getCurrentLocation() async {
-  final permission = await Permission.location.request();
-  if (!permission.isGranted) return null;
+  if (!await Geolocator.isLocationServiceEnabled()) return null;
+  var permission = await Geolocator.checkPermission();
+  if (permission == LocationPermission.denied) {
+    permission = await Geolocator.requestPermission();
+  }
+  if (permission != LocationPermission.always &&
+      permission != LocationPermission.whileInUse) return null;
 
   final position = await Geolocator.getCurrentPosition(
-    desiredAccuracy: LocationAccuracy.high,
+    locationSettings: const LocationSettings(
+      accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 15),
+    ),
   );
   return LatLng(position.latitude, position.longitude);
 }
 ```
 
-Add `geolocator: ^13.0.0` to pubspec.yaml for location access.
+Configure native foreground location permissions and iOS usage strings; handle disabled services, denied permission, timeout and approximate accuracy in the UI. A map without the location layer does not require location permission.
 
 ## Custom map style
 
 ```dart
 final mapStyle = await rootBundle.loadString('assets/map_style.json');
-final controller = await _controller.future;
-controller.setMapStyle(mapStyle);
+// Pass the loaded JSON string as GoogleMap(style: mapStyle, ...).
+// Use widget state to rebuild once loading completes.
 ```
 
 Generate dark/custom map styles at [mapstyle.withgoogle.com](https://mapstyle.withgoogle.com).
@@ -176,7 +176,9 @@ Generate dark/custom map styles at [mapstyle.withgoogle.com](https://mapstyle.wi
 
 ## Gotchas
 
-- **iOS linker flag**: add `OTHER_LDFLAGS = $(inherited) -ObjC` to your iOS Podfile if you get runtime crashes.
+- Diagnose native linker failures from the actual SDK setup and build logs; do not paste Xcode build-setting syntax into a Podfile.
 - `myLocationEnabled: true` requires location permission to be granted first. Show the permission request before enabling this — if permission is denied, the map silently disables the "My Location" button.
 - The map widget is heavy — avoid placing it in a list that frequently rebuilds. Use `const CameraPosition` and stable `MarkerId` values to minimize unnecessary redraws.
-- API key restrictions: restrict your Android key to `com.yourcompany.app` and your iOS key to your bundle ID to prevent unauthorized usage.
+- Keys are extractable from mobile binaries. Platform and API restrictions reduce misuse; they do not turn embedded keys into secrets.
+
+Reviewed 2026-10-21: [GoogleMap API](https://pub.dev/documentation/google_maps_flutter/latest/google_maps_flutter/GoogleMap-class.html), [geolocator setup](https://pub.dev/packages/geolocator).

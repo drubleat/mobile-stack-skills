@@ -1,71 +1,36 @@
 ---
-title: OpenAI — overview and model selection
+title: "OpenAI models and SDK selection"
 impact: HIGH
-impactDescription: "Correct model choice (gpt-5.5 vs gpt-5.4-mini) drives 10–40x cost difference with minimal quality tradeoff"
-tags: openai, models, pricing, responses-api
+impactDescription: "Use the provider API correctly while preserving server authorization"
+tags: ai, mobile, api
 ---
 
-# OpenAI — overview & model selection
+# OpenAI models and SDK selection
 
-## SDK install & init (in an Edge Function)
-
-```bash
-# In Deno (Edge Function) — use npm: import
-# In Node.js / local tooling
-npm install openai
-```
+Use the installed SDK and current [model catalog](https://developers.openai.com/api/docs/models) to select a model for the required modality, quality, latency, context length, and budget. Preserve an explicitly requested model. Check availability, deprecations, and [API pricing](https://developers.openai.com/api/docs/pricing); this skill does not carry a live price list.
 
 ```ts
-// Deno Edge Function
+// Deno: pin/lock the version selected for your project.
 import OpenAI from 'npm:openai';
 const openai = new OpenAI({ apiKey: Deno.env.get('OPENAI_API_KEY') });
-
-// Node.js
-import OpenAI from 'openai';
-const openai = new OpenAI(); // reads OPENAI_API_KEY from env automatically
+const model = Deno.env.get('OPENAI_MODEL');
+if (!model) throw new Error('OPENAI_MODEL is required');
 ```
 
-## Current models (June 2026)
+In Node use `import OpenAI from 'openai'`. Keep provider configuration server-side; clients must not choose arbitrary expensive models. Use a dated snapshot when reproducibility requires one and the model supports it. An alias can change behavior; it is not a guarantee of compatibility.
 
-| Model | ID | Best for | Input / Output per MTok |
-|---|---|---|---|
-| **GPT-5.5** | `gpt-5.5` | Complex professional work, coding, agentic tasks | $5 / $30 |
-| **GPT-5.4** | `gpt-5.4` | Strong general purpose | $2.50 / $15 |
-| **GPT-5.4 mini** | `gpt-5.4-mini` | High-volume, latency-sensitive | $0.75 / $4.50 |
-| GPT-4o Transcribe | `gpt-4o-transcribe` | Speech-to-text | per minute |
-| GPT Image 2 | `gpt-image-2` | Image generation | per image |
-| GPT Realtime 2 | `gpt-realtime-2` | Live voice agents (websocket) | per session |
+For new integrations, use Responses when it meets requirements. Existing Chat Completions integrations can remain; migration is a separate scoped change. Do not promise cache savings or a deprecation date without a source.
 
-All frontier models (`gpt-5.x`) support text and image input (vision), multilingual, and function calling. Context: 1M tokens (gpt-5.5/5.4), 400K (gpt-5.4-mini).
-
-> **Re-check model IDs before pinning** — OpenAI releases new snapshots frequently. Use `gpt-5.4-mini` (not `gpt-5.4-mini-YYYY-MM-DD`) to always get the latest stable snapshot, or pin a dated snapshot for stability.
-
-## Responses API vs Chat Completions
-
-**Use the Responses API for all new projects.** It's OpenAI's current recommended API with better performance, built-in state management, and native tool support.
-
-| | Chat Completions | Responses API |
-|---|---|---|
-| Endpoint | `/chat/completions` | `/responses` |
-| Input param | `messages` array | `input` (string or Items) |
-| System prompt | `{ role: "system", content: "..." }` | top-level `instructions` param |
-| Output access | `choices[0].message.content` | `response.output_text` |
-| Multi-turn state | manual transcript | `previous_response_id` |
-
-Chat Completions still works and isn't going away, but the Responses API gives you better cache utilization (40-80% improvement per OpenAI) and a cleaner API for agentic workflows.
-
-## Capability map → files
-
-| Capability | File |
+| Capability | Reference |
 |---|---|
-| Text generation, multi-turn, Responses API | [openai/text-responses-api.md](openai/text-responses-api.md) |
-| Vision / image understanding | [openai/vision.md](openai/vision.md) |
-| STT, TTS, Realtime voice | [openai/audio.md](openai/audio.md) |
-| Image generation (GPT Image 2) | [openai/image-generation.md](openai/image-generation.md) |
-| Function calling / tool use | [openai/tools.md](openai/tools.md) |
+| Text and conversation state | [Text](openai/text-responses-api.md) |
+| Image input | [Vision](openai/vision.md) |
+| Transcription, speech, Realtime | [Audio](openai/audio.md) |
+| Image generation and edits | [Images](openai/image-generation.md) |
+| Function calling | [Tools](openai/tools.md) |
 
-## Security checklist (always)
+Keep API keys server-side, enforce [quotas](guardrails.md), and set provider billing alerts. Alerts do not replace application spending controls.
 
-- `OPENAI_API_KEY` lives only in `supabase secrets set` / Edge Function env. Never in the mobile bundle.
-- Set a **spending limit** in the OpenAI dashboard — a runaway function or a leaked key won't bleed indefinitely.
-- Add per-user rate limiting in your proxy → [guardrails.md](guardrails.md).
+## Sources
+
+Reviewed 2026-10-20: [Responses](https://developers.openai.com/api/docs/guides/text), [model catalog](https://developers.openai.com/api/docs/models).

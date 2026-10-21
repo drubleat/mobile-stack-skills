@@ -1,5 +1,5 @@
 ---
-title: APNs key: Apple Developer → Firebase
+title: "APNs key: Apple Developer → Firebase"
 impact: HIGH
 impactDescription: "Without an APNs authentication key, FCM silently delivers to Android only; iOS push appears to work in dev then breaks in prod"
 tags: push, apns, ios, firebase, certificates

@@ -1,5 +1,5 @@
 ---
-title: Expo Router — file-based navigation deep dive
+title: "Expo Router — file-based navigation deep dive"
 impact: HIGH
 impactDescription: "Navigation is the skeleton of every RN app; wrong route group / auth guard structure causes flicker, leaks protected screens, or breaks deep links"
 tags: expo-router, navigation, routing, expo, react-native, auth, deep-linking
@@ -257,6 +257,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
 ```tsx
 // app/_layout.tsx
 import { Stack } from 'expo-router';
+import { useEffect } from 'react';
 import { SessionProvider, useSession } from '@/lib/auth-context';
 import * as SplashScreen from 'expo-splash-screen';
 
@@ -306,21 +307,11 @@ app/
     └── profile.tsx
 ```
 
-**Why this beats per-screen guards:** logged-out users never mount `(app)` routes — no data fetch, no flicker, no leak. The guard is evaluated once at the navigator level.
+The navigator reacts to session changes and restricts which screens can be reached. It is a UI gate, not a data authorization boundary: enforce access on the backend and clear user-scoped caches on logout/account change.
 
 ### With Supabase auth
 
-Replace `useStorageState` with the Supabase session listener:
-
-```tsx
-useEffect(() => {
-  supabase.auth.getSession().then(({ data }) => setSession(data.session));
-  const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-  return () => sub.subscription.unsubscribe();
-}, []);
-```
-
-See [../supabase/auth.md](../supabase/auth.md) for the full Supabase session flow.
+Use the Supabase SDK as the session authority instead of storing a second token. Handle its initial session, restoration errors and later auth events; unsubscribe on unmount. Do not race an unguarded `getSession()` result against newer sign-out/sign-in events. See [architecture.md](architecture.md) and [Supabase auth](../supabase/auth.md) for the lifecycle.
 
 ---
 
@@ -338,7 +329,7 @@ Enable in `app.json` for autocomplete + compile-time checks on `href`:
 }
 ```
 
-After this, `<Link href="/psot/123">` (typo) becomes a TypeScript error. Run `npx expo customize` / restart the type server to regenerate.
+After this, `<Link href="/psot/123">` (typo) becomes a TypeScript error. Run `npx expo start` to generate the route declarations and restart the TypeScript server if necessary.
 
 ---
 
@@ -362,7 +353,7 @@ Now `myapp://post/123` opens `app/post/[id].tsx` with `id=123`. For universal/ap
 
 - **`Stack.Protected` needs SDK 53+.** On older versions, gate with an imperative `<Redirect href="/sign-in" />` in the layout — but upgrade if you can; the imperative pattern flickers.
 - **Don't gate inside each screen.** It's leaky (screen mounts before redirect) and flickers. Gate at the navigator with `Stack.Protected` or route groups.
-- **`useLocalSearchParams` returns strings.** A `[id]` param is always a string — `Number(id)` if you need a number.
+- **`useLocalSearchParams` returns strings.** Validate params before use; catch-all segments are arrays and a TypeScript annotation does not validate incoming URLs. Parse and validate numeric IDs explicitly.
 - **Components in `app/` become routes.** A `app/components/Button.tsx` will be treated as a route `/components/Button`. Keep non-routes outside `app/`.
 - **Route groups don't nest URLs** — `(tabs)/index.tsx` is `/`, not `/tabs`. Use them purely for organization and shared layouts.
 - **Splash screen timing** — hide splash only AFTER the session is restored, or users see a login flash before being sent to the app.

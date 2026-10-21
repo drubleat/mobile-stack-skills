@@ -1,187 +1,48 @@
 ---
-title: Firebase Auth: when to use vs Supabase Auth
-impact: MEDIUM-HIGH
-impactDescription: "Use Firebase Auth when already Firebase-standalone; Supabase Auth is simpler for Supabase-primary stacks"
-tags: firebase, auth, oauth, google, apple
+title: "Firebase authentication: modular clients and native identity"
+impact: HIGH
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# Firebase Auth
+# Firebase authentication: modular clients and native identity
 
-## When to use Firebase Auth vs Supabase Auth
-
-- **Firebase-standalone**: use Firebase Auth for all authentication — email/password, Google, Apple.
-- **Supabase + Firebase hybrid**: use Supabase Auth. Only add Firebase Auth if you already have an existing Firebase user base to migrate from. Don't run two auth systems in parallel.
-
-## Email / password (standalone)
+Initialize the native app using [setup](setup-cli.md). React Native Firebase uses modular imports:
 
 ```ts
-import auth from '@react-native-firebase/auth';
-
-// Sign up
-const { user } = await auth().createUserWithEmailAndPassword(email, password);
-
-// Sign in
-const { user } = await auth().signInWithEmailAndPassword(email, password);
-
-// Sign out
-await auth().signOut();
-
-// Listen for auth state changes
-const unsubscribe = auth().onAuthStateChanged((user) => {
-  if (user) {
-    // user is signed in
-  } else {
-    // user is signed out
-  }
-});
-// Call unsubscribe() on component unmount
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword } from '@react-native-firebase/auth';
+const auth = getAuth();
+const unsubscribe = onAuthStateChanged(auth, user => setUser(user));
+// Dispose unsubscribe with the screen/provider lifecycle.
+await signInWithEmailAndPassword(auth, email, password);
 ```
 
-## Google Sign-In
+Show a loading state until initial restoration resolves. Catch sign-in failures and cancellation; do not log credentials. Use token-change listeners if backend requests must react to refreshed claims. Firebase Security Rules/server verification enforce access; a route guard is only UI.
 
-```bash
-npx expo install @react-native-google-signin/google-signin
-```
+For React Native Google sign-in, configure native client IDs and signing fingerprints, call `GoogleSignin.signIn()`, check its success result and read the ID token from the result shape documented by the installed package (modern releases use `result.data.idToken`). Convert it with `GoogleAuthProvider.credential` and call modular `signInWithCredential`.
 
-```ts
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import auth from '@react-native-firebase/auth';
+For Apple native sign-in, generate a cryptographically random raw nonce, send its SHA-256 hash to Apple's authorization request and pass the raw nonce with the ID token to Firebase's Apple credential. Do not use the authorization code as an OAuth access token. Handle first-authorization-only profile fields and persist them without overwriting existing values with null.
 
-GoogleSignin.configure({
-  webClientId: 'YOUR_WEB_CLIENT_ID',  // from google-services.json oauth_client
-});
+## Flutter with google_sign_in 7
 
-async function signInWithGoogle() {
-  await GoogleSignin.hasPlayServices();
-  const { idToken } = await GoogleSignin.signIn();
-  const credential = auth.GoogleAuthProvider.credential(idToken);
-  return auth().signInWithCredential(credential);
-}
-```
-
-## Apple Sign-In
-
-```bash
-npx expo install expo-apple-authentication
-```
-
-```ts
-import * as AppleAuthentication from 'expo-apple-authentication';
-import auth from '@react-native-firebase/auth';
-
-async function signInWithApple() {
-  const credential = await AppleAuthentication.signInAsync({
-    requestedScopes: [
-      AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-      AppleAuthentication.AppleAuthenticationScope.EMAIL,
-    ],
-  });
-  const { identityToken } = credential;
-  const appleCredential = auth.AppleAuthProvider.credential(identityToken);
-  return auth().signInWithCredential(appleCredential);
-}
-```
-
-Enable Apple Sign-In in Firebase Console → Authentication → Sign-in method → Apple.
-
-## Get the current user's ID token (for backend calls)
-
-```ts
-const user = auth().currentUser;
-if (user) {
-  const token = await user.getIdToken();  // JWT, expires every hour
-  // Send as Authorization: Bearer <token> header to your backend
-}
-```
-
-## Auto-create user profile on first sign-in
-
-```ts
-auth().onAuthStateChanged(async (user) => {
-  if (!user) return;
-  
-  // Check if Firestore profile exists; create if not
-  const profileRef = firestore().collection('profiles').doc(user.uid);
-  const doc = await profileRef.get();
-  if (!doc.exists) {
-    await profileRef.set({
-      uid: user.uid,
-      email: user.email,
-      displayName: user.displayName,
-      createdAt: firestore.FieldValue.serverTimestamp(),
-    });
-  }
-});
-```
-
-## Flutter — google_sign_in 7.x (breaking changes)
-
-`google_sign_in 7.x` introduced breaking changes from 6.x. The patterns below are correct for **7.2.0+**.
+Initialize Firebase explicitly before accessing FirebaseAuth. Initialize the Google singleton once and await it before interactive authentication:
 
 ```dart
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-
-final auth = FirebaseAuth.instance;
-
-// Listen for auth state
-auth.authStateChanges().listen((User? user) {
-  if (user == null) print('signed out');
-  else print('signed in: ${user.uid}');
-});
-
-// Email sign-in
-final credential = await auth.signInWithEmailAndPassword(
-  email: email,
-  password: password,
+final google = GoogleSignIn.instance;
+await google.initialize(serverClientId: webClientId);
+// On a supported native platform, from the user's sign-in action:
+final account = await google.authenticate();
+final idToken = account.authentication.idToken;
+if (idToken == null) throw StateError('Missing Google ID token');
+await FirebaseAuth.instance.signInWithCredential(
+  GoogleAuthProvider.credential(idToken: idToken),
 );
-
-// Google Sign-In — 7.x pattern
-class AuthService {
-  AuthService() {
-    // REQUIRED in 7.x: must call initialize() before any sign-in
-    // On web: skip — use signInWithPopup instead (web hangs if initialize() called without clientId)
-    if (!kIsWeb) {
-      GoogleSignIn.instance.initialize();
-    }
-  }
-
-  Future<UserCredential?> signInWithGoogle() async {
-    if (kIsWeb) {
-      // Web: use Firebase Auth popup directly
-      return await auth.signInWithPopup(GoogleAuthProvider());
-    }
-
-    // Mobile: 7.x uses authenticate() not signIn()
-    final googleUser = await GoogleSignIn.instance.authenticate();
-    if (googleUser == null) return null; // user cancelled
-
-    final googleAuth = await googleUser.authentication;
-    // 7.x: idToken only on initial auth; accessToken requires separate request
-    final credential = GoogleAuthProvider.credential(idToken: googleAuth.idToken);
-    return await auth.signInWithCredential(credential);
-  }
-
-  Future<void> signOut() async {
-    // Web: skip GoogleSignIn.signOut() — it's not initialized on web
-    if (!kIsWeb) {
-      await GoogleSignIn.instance.signOut();
-    }
-    await auth.signOut();
-  }
-}
 ```
 
-**Key 7.x changes vs 6.x:**
-- `signIn()` → `authenticate()` (signIn is deprecated/removed)
-- `initialize()` is now **required** before first use (do it in constructor or main())
-- On web without `clientId` in `initialize()`, the app hangs with a blank screen
-- `accessToken` is not included in initial auth — call `GoogleSignIn.instance.requestScopes()` separately if you need Google API access
+This requires firebase_auth/google_sign_in imports and configured platform IDs. Authentication and API scope authorization are separate in v7; request extra scopes through `account.authorizationClient` only when needed. Web uses the documented Google sign-in button flow, not an assumed native `authenticate()` implementation. Handle `GoogleSignInException`, including cancellation.
 
-## Gotchas
+For Flutter Apple use Firebase's supported provider flow or the documented nonce-based native credential flow. See the official platform example before implementing account linking/re-authentication. Enforce email verification in Rules/server code when required, and implement account deletion including provider revocation where applicable.
 
-- `onAuthStateChanged` / `authStateChanges()` fires with `null` on app start while Firebase checks persistence. Show a loading state until the first emission.
-- ID tokens expire after 1 hour. Always call `getIdToken()` (auto-refreshes) rather than caching the raw token.
-- Apple Sign-In only returns `email` and `displayName` on the **first** authorization. Store them in Firestore on first sign-in; subsequent sign-ins won't include them.
-- **google_sign_in 7.x**: `initialize()` must be called before any `authenticate()` call. Forgetting this causes a `PlatformException` at runtime, not compile time.
+## Sources
+
+Reviewed 2026-10-20: [RN social auth](https://rnfirebase.io/auth/social-auth), [Flutter federated auth](https://firebase.google.com/docs/auth/flutter/federated-auth), [google_sign_in](https://pub.dev/packages/google_sign_in).

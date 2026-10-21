@@ -1,118 +1,31 @@
 ---
-title: pg_cron — scheduled jobs for mobile app backends
+title: "pg_cron: recurring backend work"
 impact: HIGH
-impactDescription: "pg_cron handles recurring backend tasks (cleanup, reminders, digest emails, subscription checks) without external schedulers or always-on servers"
-tags: pg-cron, supabase, scheduling, background-jobs, postgres
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# pg_cron: scheduled background jobs
+# pg_cron: recurring backend work
 
-pg_cron is enabled by default on Supabase. It runs recurring SQL or stored procedure calls on a cron schedule, inside Postgres, with no external infrastructure.
-
-## Common patterns for mobile app backends
-
-### 1. Daily subscription expiry check
+Enable the extension in the intended project; do not assume it is enabled everywhere. Jobs run with database privileges, so review the SQL and role. Keep work bounded and monitor failures and overlap.
 
 ```sql
-create or replace function check_expired_subscriptions()
-returns void language plpgsql security definer set search_path = public as $$
-begin
-  update subscriptions
-  set is_active = false
-  where expires_at < now()
-    and is_active = true;
-end;
-$$;
-
-select cron.schedule(
-  'check-expired-subscriptions',
-  '*/30 * * * *',  -- every 30 minutes
-  'select check_expired_subscriptions()'
-);
-```
-
-### 2. Trigger daily digest emails via Edge Function
-
-```sql
-select cron.schedule(
-  'daily-digest',
-  '0 9 * * *',  -- 9am UTC daily
-  $$
-    select net.http_post(
-      url := current_setting('app.supabase_url') || '/functions/v1/send-digest',
-      headers := jsonb_build_object(
-        'Authorization', 'Bearer ' || current_setting('app.service_key'),
-        'Content-Type', 'application/json'
-      ),
-      body := '{}'::jsonb
-    )
-  $$
-);
-```
-
-Set the app settings in the dashboard or via migration:
-
-```sql
-alter database postgres set app.supabase_url = 'https://[project-ref].supabase.co';
-alter database postgres set app.service_key = 'sb_secret_...';
-```
-
-### 3. Soft-delete cleanup
-
-```sql
-select cron.schedule(
-  'purge-deleted-content',
-  '0 3 * * *',  -- 3am UTC nightly
-  $$
-    delete from posts where deleted_at < now() - interval '30 days';
-    delete from messages where deleted_at < now() - interval '90 days';
-  $$
-);
-```
-
-### 4. Token / cache expiry
-
-```sql
-select cron.schedule(
-  'clean-expired-tokens',
-  '0 * * * *',  -- hourly
-  $$delete from otp_tokens where expires_at < now()$$
-);
-```
-
-## Manage jobs
-
-```sql
--- List all jobs
+-- Example assumes posts.deleted_at and an approved retention policy.
+select cron.schedule('purge-deleted-posts', '0 3 * * *',
+  $$delete from public.posts where deleted_at < now() - interval '30 days'$$);
 select jobid, jobname, schedule, active from cron.job;
-
--- View recent run history
-select jobname, status, start_time, end_time - start_time as duration, return_message
-from cron.job_run_details
-join cron.job using (jobid)
-order by start_time desc
-limit 20;
-
--- Disable a job temporarily
-update cron.job set active = false where jobname = 'daily-digest';
-
--- Remove a job
-select cron.unschedule('daily-digest');
+select jobid, status, start_time, end_time, return_message
+from cron.job_run_details order by start_time desc limit 20;
+-- When removing this task:
+-- select cron.unschedule('purge-deleted-posts');
 ```
 
-## Cron expression quick reference
+Inspect the configured cron timezone (Supabase commonly uses UTC). Per-user local reminders need timezone/DST-aware scheduling rather than a fixed UTC offset. Large cleanup jobs should process bounded batches and respect lock/statement timeouts.
 
-```
-'* * * * *'       — every minute
-'*/5 * * * *'     — every 5 minutes
-'0 * * * *'       — every hour on the hour
-'0 9 * * *'       — daily at 9am UTC
-'0 9 * * 1'       — every Monday at 9am UTC
-'0 0 1 * *'       — first day of each month at midnight
-```
+For remote work, combine cron with [pg_net](pg-net.md) or a durable [queue](queues.md). Store credentials in Vault or the supported secret system; never in `ALTER DATABASE ... SET app.service_key`. Authenticate worker endpoints and make external side effects idempotent. Cron execution success is not confirmation that a queued HTTP request succeeded.
 
-All times are **UTC**. Convert your target timezone to UTC before scheduling.
+Subscriptions require expiry, grace-period and provider reconciliation logic from [webhooks](../monetization/webhooks-supabase.md). Do not blindly flip access using an `expires_at` column absent from the schema, or rely solely on a scheduled boolean update to enforce expiry.
 
-## Deep reference
+## Sources
 
-SQL-level detail, DLQ patterns, advisory lock integration → [supabase-postgres-best-practices: ext-pg-cron](../../supabase-postgres-best-practices/rules/ext-pg-cron.md).
+Reviewed 2026-10-20: [Supabase Cron](https://supabase.com/docs/guides/cron), [pg_cron](https://github.com/citusdata/pg_cron).

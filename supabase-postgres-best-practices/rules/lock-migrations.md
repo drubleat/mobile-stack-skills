@@ -1,5 +1,5 @@
 ---
-title: Lock management — avoiding migration deadlocks and table locks
+title: "Lock management — avoiding migration deadlocks and table locks"
 impact: MEDIUM-HIGH
 impactDescription: "ALTER TABLE acquires AccessExclusiveLock and blocks all reads and writes; a migration that takes 30s on a busy table causes a visible outage"
 tags: locks, migrations, postgres, concurrency, schema

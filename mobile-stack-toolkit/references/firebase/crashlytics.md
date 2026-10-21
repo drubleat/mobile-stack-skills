@@ -1,128 +1,31 @@
 ---
-title: Firebase Crashlytics: crash reporting & non-fatals
+title: "Crashlytics reporting and symbol verification"
 impact: HIGH
-impactDescription: "Custom keys and non-fatal logging attached before a crash make the difference between a 10-minute fix and a 2-day investigation"
-tags: firebase, crashlytics, monitoring, crashes
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# Firebase Crashlytics
+# Crashlytics reporting and symbol verification
 
-Crashlytics provides real-time crash reporting, non-fatal error logging, and custom metadata attached to crash reports.
-
-## Setup (React Native / Expo)
-
-```bash
-npx expo install @react-native-firebase/crashlytics
-```
-
-Add to `app.config.ts`:
-```ts
-plugins: [
-  '@react-native-firebase/app',
-  '@react-native-firebase/crashlytics',
-]
-```
-
-No additional initialization code is needed — Crashlytics automatically captures unhandled JS exceptions and native crashes after you rebuild with the plugin.
-
-## Capturing non-fatal errors
+Configure native Crashlytics for the installed Firebase SDK and rebuild. For RN Firebase, use modular APIs:
 
 ```ts
-import crashlytics from '@react-native-firebase/crashlytics';
-
-// Log a non-fatal error (shows in Crashlytics dashboard without crashing the app)
-try {
-  await riskyOperation();
-} catch (error) {
-  crashlytics().recordError(error as Error);
-  // Handle gracefully...
+import { getCrashlytics, recordError, log } from '@react-native-firebase/crashlytics';
+const reporter = getCrashlytics();
+log(reporter, 'Checkout opened');
+try { await operation(); }
+catch (error) {
+  recordError(reporter, error instanceof Error ? error : new Error('Operation failed'));
+  throw error;
 }
 ```
 
-## Custom keys and logs
+Attach only approved non-sensitive metadata; clear user identifiers on logout. Respect configured collection/consent behavior. Avoid assuming every debug build uploads or that every JS exception is automatically captured with the right classification.
 
-Attach metadata to crash reports to make them easier to debug:
+For Flutter, wire framework errors via `FlutterError.onError` and asynchronous errors via `PlatformDispatcher.instance.onError` after Firebase initialization. Import `dart:ui` for PlatformDispatcher. Preserve existing error handlers as appropriate and classify fatal/nonfatal errors deliberately.
 
-```ts
-// Runs on app start / user sign-in
-async function setCrashlyticsUser(userId: string, plan: string) {
-  await crashlytics().setUserId(userId);
-  await crashlytics().setAttribute('plan', plan);
-  await crashlytics().setAttribute('appVersion', Constants.expoConfig?.version ?? 'unknown');
-}
+Verify symbolication for a known release test crash: iOS dSYM, Android mapping files and any relevant JS source maps. A config plugin is not proof that a particular upload succeeded. Use a dedicated test build, restart after the crash, detach the debugger as the platform guide requires, and inspect the resulting dashboard event. Do not claim a fixed arrival time or deliberately crash user production sessions.
 
-// Log events leading up to a crash (last 64 lines retained)
-crashlytics().log('User opened paywall');
-crashlytics().log('Tapping purchase button');
-```
+## Sources
 
-## Breadcrumbs pattern
-
-```ts
-// lib/crashlytics.ts
-import crashlytics from '@react-native-firebase/crashlytics';
-
-export function logBreadcrumb(event: string, params?: Record<string, string>) {
-  const paramStr = params ? ` ${JSON.stringify(params)}` : '';
-  crashlytics().log(`[${new Date().toISOString()}] ${event}${paramStr}`);
-}
-
-// Usage
-logBreadcrumb('navigation', { screen: 'Paywall', from: 'HomeTab' });
-logBreadcrumb('purchase.start', { productId: 'pro_monthly' });
-```
-
-## Testing Crashlytics
-
-```ts
-// Force a test crash (use only in dev/debug builds)
-crashlytics().crash();
-```
-
-Test crashes appear in the Crashlytics dashboard under "Debugger" within a few minutes. **Production builds can take up to 5 minutes** to appear; non-fatal errors may take longer.
-
-## Disabling in development
-
-Crashlytics uploads are suppressed in debug builds by default. If you want to explicitly disable it:
-
-```ts
-if (__DEV__) {
-  crashlytics().setCrashlyticsCollectionEnabled(false);
-}
-```
-
-## dSYM upload (iOS symbolication)
-
-For Expo managed workflow with EAS Build, dSYMs are uploaded automatically. If you see unsymbolicated iOS crashes, check that the `@react-native-firebase/crashlytics` plugin is in your `app.config.ts` plugins array — it configures the build phase that uploads dSYMs.
-
-## Flutter
-
-```dart
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:flutter/foundation.dart';
-
-// In main(), after Firebase.initializeApp():
-FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
-
-// Catch async errors not caught by Flutter framework:
-PlatformDispatcher.instance.onError = (error, stack) {
-  FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-  return true;
-};
-
-// Non-fatal:
-FirebaseCrashlytics.instance.recordError(error, stackTrace);
-
-// Custom keys:
-await FirebaseCrashlytics.instance.setUserIdentifier(userId);
-await FirebaseCrashlytics.instance.setCustomKey('plan', plan);
-
-// Log:
-FirebaseCrashlytics.instance.log('User opened paywall');
-```
-
-## Gotchas
-
-- Crashlytics only uploads crash reports on the **next app launch** after a crash. Crashes are buffered and sent when the app restarts.
-- In Expo Go / development builds without the native module built in, Crashlytics won't work — it requires a native build.
-- Obfuscated Android builds (R8/ProGuard) need the Crashlytics Gradle plugin to upload mapping files. This is handled automatically by the `@react-native-firebase/crashlytics` config plugin for EAS Build.
+Reviewed 2026-10-20: [RN Crashlytics](https://rnfirebase.io/crashlytics/usage), [Flutter Crashlytics](https://firebase.google.com/docs/crashlytics/get-started?platform=flutter).

@@ -1,5 +1,5 @@
 ---
-title: Entitlement checks & feature gating
+title: "Entitlement checks & feature gating"
 impact: CRITICAL
 impactDescription: "Client-only entitlement checks can be bypassed; server-side verification via subscriptions table is required for paywalled AI features"
 tags: revenuecat, entitlements, feature-gating, security, subscriptions
@@ -30,19 +30,25 @@ export function useEntitlement(entitlementId: string) {
 
   useEffect(() => {
     // Fetch current state
+    let disposed = false;
     Purchases.getCustomerInfo().then(info => {
+      if (disposed) return;
       setCustomerInfo(info);
       setIsActive(!!info.entitlements.active[entitlementId]);
       setLoading(false);
+    }).catch(() => {
+      if (!disposed) { setIsActive(false); setLoading(false); }
+      // Surface a retry state in the screen; failure does not grant access.
     });
 
     // Subscribe to changes (purchase, restore, expiry)
-    const listener = Purchases.addCustomerInfoUpdateListener(info => {
+    const listener = (info: CustomerInfo) => {
+      if (disposed) return;
       setCustomerInfo(info);
       setIsActive(!!info.entitlements.active[entitlementId]);
-    });
-
-    return () => listener.remove();
+    };
+    Purchases.addCustomerInfoUpdateListener(listener);
+    return () => { disposed = true; Purchases.removeCustomerInfoUpdateListener(listener); };
   }, [entitlementId]);
 
   return { isActive, customerInfo, loading };
@@ -78,13 +84,20 @@ return <PremiumFeature />;
 
 ```ts
 // In ai-proxy/index.ts — before calling OpenAI
-const { data: sub } = await supabase
+const { data: sub, error } = await supabase
   .from('subscriptions')
-  .select('is_active, entitlement')
+  .select('is_active, entitlement, current_period_end, verified_at')
   .eq('user_id', user.id)
-  .single();
+  .eq('entitlement', 'pro')
+  .maybeSingle();
 
-if (!sub?.is_active) {
+if (error) return new Response('Entitlements unavailable', { status: 503, headers: cors });
+const expiry = sub?.current_period_end ? Date.parse(sub.current_period_end) : null;
+const verified = sub?.verified_at ? Date.parse(sub.verified_at) : NaN;
+const fresh = Number.isFinite(verified) && Date.now() - verified < 5 * 60_000;
+// Null expiry means lifetime only when explicitly verified by the server projection.
+if (!fresh) return new Response('Entitlement refresh required', { status: 503, headers: cors });
+if (!sub?.is_active || (expiry !== null && !(expiry > Date.now()))) {
   return new Response('Subscription required', { status: 403, headers: cors });
 }
 ```
@@ -96,8 +109,8 @@ The `subscriptions` table is written by the RevenueCat webhook → [webhooks-sup
 ```ts
 customerInfo.entitlements.active           // { 'pro': EntitlementInfo } if active
 customerInfo.entitlements.all              // includes expired
-customerInfo.activeSubscriptions           // Set of active product IDs (don't use for gating)
-customerInfo.latestExpirationDate          // Date | null — when the current period ends
+customerInfo.activeSubscriptions           // Array of active product IDs (don't use for gating)
+customerInfo.latestExpirationDate          // ISO date string | null
 customerInfo.firstSeen                     // when this RC user was first seen
 customerInfo.originalAppUserId            // the ID passed to logIn(), or RC's anonymous ID
 ```
@@ -106,7 +119,7 @@ Use `entitlements.active` for gating, not `activeSubscriptions`. Entitlements su
 
 ## Expiration & grace period
 
-If a subscription lapses (failed payment), RC enters a grace period (configurable in RC dashboard). During grace, `entitlement.isActive` stays `true` — the user keeps access while the store retries billing. After the grace period, the entitlement expires. Handle the expiry gracefully in UI; don't hard-block immediately.
+If a subscription lapses (failed payment), the store may apply a configured grace period. During grace, `entitlement.isActive` stays `true` — the user keeps access while the store retries billing. After the grace period, the entitlement expires. Handle the expiry gracefully in UI; don't hard-block immediately.
 
 ## Promotional entitlements
 

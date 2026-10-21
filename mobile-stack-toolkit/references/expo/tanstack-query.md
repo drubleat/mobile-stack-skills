@@ -1,5 +1,5 @@
 ---
-title: TanStack Query v5 — data fetching for React Native
+title: "TanStack Query v5 — data fetching for React Native"
 impact: MEDIUM-HIGH
 impactDescription: "TanStack Query eliminates manual loading/error/cache state; React Native requires explicit online and app-focus wiring or stale data and ghost refetches appear"
 tags: tanstack-query, react-query, expo, react-native, data-fetching, caching
@@ -10,7 +10,7 @@ tags: tanstack-query, react-query, expo, react-native, data-fetching, caching
 TanStack Query (formerly React Query) handles server-state: fetching, caching, deduplication, background refetching, and pagination. It is NOT a global state manager — use it for async data from APIs/Supabase, and Zustand for local UI state.
 
 **Package:** `@tanstack/react-query`  
-**Version:** 5.x (v5.76+ as of June 2026)
+**Historical example baseline:** 5.x (v5.76+ as of June 2026) — resolve a compatible installed version before using these snippets.
 
 ---
 
@@ -216,14 +216,15 @@ const { data } = useQuery({
 import { useInfiniteQuery } from '@tanstack/react-query';
 
 const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
-  queryKey: ['messages'],
+  queryKey: ['messages', userId],
   queryFn: ({ pageParam = 0 }) =>
     supabase
       .from('messages')
       .select('*')
+      .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .range(pageParam, pageParam + 19)
-      .then(({ data }) => data ?? []),
+      .then(({ data, error }) => { if (error) throw error; return data ?? []; }),
   getNextPageParam: (lastPage, allPages) =>
     lastPage.length === 20 ? allPages.flat().length : undefined,
   initialPageParam: 0,

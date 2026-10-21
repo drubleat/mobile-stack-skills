@@ -1,5 +1,5 @@
 ---
-title: Expo — domain index
+title: "Expo — domain index"
 impact: MEDIUM-HIGH
 impactDescription: "Routes to bootstrap, architecture, EAS Build, dev builds, OTA updates, and troubleshooting"
 tags: expo, react-native, index
@@ -13,7 +13,7 @@ Everything about scaffolding, building, shipping JS updates, and debugging the l
 
 | Task | File |
 |---|---|
-| Start a project, choose SDK 54 vs 56, lay out folders & expo-router | [bootstrap-structure.md](bootstrap-structure.md) |
+| Start a project, select a compatible SDK, lay out folders & expo-router | [bootstrap-structure.md](bootstrap-structure.md) |
 | Understand Expo Go vs Dev Build, `prebuild`, config plugins, native modules | [native-dev-builds.md](native-dev-builds.md) |
 | Configure `eas.json`, run cloud/local builds, manage credentials | [eas-build.md](eas-build.md) |
 | Ship JS-only updates over the air (channels, runtime version, rollbacks) | [ota-updates.md](ota-updates.md) |
@@ -30,19 +30,6 @@ Everything about scaffolding, building, shipping JS updates, and debugging the l
 
 For store submission don't look here → [../store/_index.md](../store/_index.md). For CI builds → [../cicd/eas-workflows.md](../cicd/eas-workflows.md).
 
-## The one decision that drives everything
+## Native compatibility
 
-**Are you using any library with native code?** (RevenueCat, RN Firebase, anything touching `ios/`/`android/`.)
-
-- **No** → Expo Go works; you can stay in the managed flow with zero native builds.
-- **Yes** → Expo Go is dead for you. You need a **Dev Build** (`expo-dev-client`) for development and EAS builds for distribution. This is the normal state for any real production app. Details: [native-dev-builds.md](native-dev-builds.md).
-
-Almost every app in this toolkit (RevenueCat + push) lands in the "Yes" bucket, so plan for Dev Builds from day one.
-
-## Mental model of the three "build" verbs
-
-- **`npx expo run:ios|android`** — compiles a debug build *on your machine*. Needs Xcode/Android Studio locally. Auto-runs `prebuild` if no native folders exist.
-- **`eas build`** — compiles in the cloud (or locally with `--local`). This is what produces installable/submittable artifacts.
-- **`eas update`** — ships **JS/asset-only** changes to already-installed builds. No native compile, no store review. Cannot change native code.
-
-Knowing which verb applies to a change saves hours: a new icon or screen → `eas update`; a new native module → rebuild with `eas build` and bump the runtime version.
+Use Expo Go only when the required native modules/configuration are already included. Custom native changes require a development build. `expo run:*` builds locally; `eas build` builds a binary; `eas update` publishes compatible JS/assets. App icons and other native config require a binary rebuild. See the focused guides above.

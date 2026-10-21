@@ -1,5 +1,5 @@
 ---
-title: Index strategy — types, maintenance, and pitfalls
+title: "Index strategy — types, maintenance, and pitfalls"
 impact: HIGH
 impactDescription: "Wrong index type (btree vs gin vs brin) misses queries entirely; duplicate or unused indexes slow down writes with no read benefit"
 tags: indexes, schema, performance, postgres, maintenance
@@ -21,14 +21,14 @@ tags: indexes, schema, performance, postgres, maintenance
 ## Concurrent index creation (zero downtime)
 
 ```sql
--- ❌ Locks the table — blocks reads and writes
+-- Takes a lock that blocks writes; ordinary reads continue
 create index on messages(user_id);
 
--- ✅ No lock — safe on production tables
+-- Allows ordinary writes, but still takes locks and can wait/fail
 create index concurrently on messages(user_id);
 ```
 
-`CONCURRENTLY` takes longer but doesn't block. Always use it on tables with live traffic.
+`CONCURRENTLY` usually reduces write disruption but does not mean lock-free. It cannot run inside a transaction block; check the migration runner. Failed builds may leave invalid indexes that need cleanup.
 
 ## Removing unused indexes
 
@@ -41,7 +41,7 @@ where idx_scan = 0
 order by pg_relation_size(indexrelid) desc;
 ```
 
-Drop indexes with `idx_scan = 0` that have existed for > 30 days (give new tables time to accumulate stats).
+Treat zero scans as a candidate for investigation, not permission to drop. Check stats resets, unique/constraint dependencies, replica workloads, and infrequent critical queries.
 
 ## Duplicate index detection
 
@@ -59,14 +59,14 @@ having count(*) > 1;
 Dead rows from UPDATEs and DELETEs leave behind index entries. VACUUM removes them, but bloated indexes waste disk and slow scans:
 
 ```sql
--- Check index bloat
+-- List index sizes (size alone does not measure bloat)
 select indexrelid::regclass as index,
        pg_size_pretty(pg_relation_size(indexrelid)) as size
 from pg_stat_user_indexes
 order by pg_relation_size(indexrelid) desc
 limit 20;
 
--- Rebuild a bloated index without locking
+-- Rebuild with reduced blocking; concurrent rebuilds still take locks
 reindex index concurrently idx_messages_user_id;
 ```
 

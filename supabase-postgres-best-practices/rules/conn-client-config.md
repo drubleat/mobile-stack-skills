@@ -1,5 +1,5 @@
 ---
-title: Supabase client configuration — keys, timeouts, retries
+title: "Supabase client configuration — keys, timeouts, retries"
 impact: HIGH
 impactDescription: "Wrong key (secret vs publishable) or missing auth config causes silent RLS bypass or session loss"
 tags: connections, client, supabase-js, auth, keys, configuration
@@ -10,11 +10,13 @@ tags: connections, client, supabase-js, auth, keys, configuration
 ## Key hierarchy (2026 naming)
 
 ```
-sb_publishable_...  ← client-safe (was: anon key)
-sb_secret_...       ← server-only, bypasses RLS (was: service_role key)
+sb_publishable_...  ← client-safe; replacement for legacy JWT anon keys
+sb_secret_...       ← server-only, bypasses RLS; replacement for legacy JWT service_role keys
 ```
 
 **The `sb_secret_` key must never appear in client code, env vars prefixed `EXPO_PUBLIC_*`, or bundled JS.** It bypasses all RLS — exposure = full database read/write for anyone.
+
+Opaque API keys are not user JWTs. Pass them as the SDK key / `apikey` header; use a user access token for bearer authentication. Review gateway configuration when migrating Edge Functions from legacy keys.
 
 ## Correct client init (React Native / Expo)
 
@@ -52,10 +54,13 @@ const supabase = createClient(
 ```ts
 // Prefer this over service key for user-scoped operations
 const authHeader = req.headers.get('Authorization');
+if (!authHeader?.startsWith('Bearer ')) return new Response('Unauthorized', { status: 401 });
 const userClient = createClient(url, publishableKey, {
-  global: { headers: { Authorization: authHeader! } },
+  global: { headers: { Authorization: authHeader } },
   auth: { persistSession: false },
 });
+const { data: { user }, error: authError } = await userClient.auth.getUser();
+if (authError || !user) return new Response('Unauthorized', { status: 401 });
 // Now queries run under the user's RLS context
 const { data } = await userClient.from('messages').select('*');
 ```
@@ -73,15 +78,6 @@ export const supabase = createClient(url, key, {
 
 ## Network retries (supabase-js v2)
 
-`supabase-js` does not auto-retry failed requests. Implement retries at the call site for idempotent reads:
+Retry behavior differs across Auth, Realtime and HTTP clients. Inspect the installed SDK and any query library before adding another layer. Retry only bounded transient failures on idempotent operations, with backoff/jitter and cancellation. Do not retry validation, authorization or quota failures blindly; honor Retry-After when appropriate. Retrying a write after a lost response can duplicate it, so use an idempotency key/unique constraint or reconcile the result first.
 
-```ts
-async function fetchWithRetry<T>(fn: () => Promise<{ data: T; error: unknown }>, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    const { data, error } = await fn();
-    if (!error) return data;
-    if (i === retries - 1) throw error;
-    await new Promise(r => setTimeout(r, 2 ** i * 500));
-  }
-}
-```
+Reviewed 2026-10-21: [Supabase API keys](https://supabase.com/docs/guides/api/api-keys).

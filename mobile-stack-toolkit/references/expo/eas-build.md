@@ -1,5 +1,5 @@
 ---
-title: EAS Build & eas.json
+title: "EAS Build & eas.json"
 impact: HIGH
 impactDescription: "eas.json profile inheritance and `EXPO_PUBLIC_*` env var discipline prevent credentials from leaking into builds"
 tags: expo, eas-build, ci, credentials

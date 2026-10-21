@@ -1,179 +1,48 @@
 ---
-title: Navigation: go_router 17.x
+title: "Flutter routing and auth state"
 impact: HIGH
-impactDescription: "go_router ShellRoute pattern is required for bottom nav with nested stacks; wrong setup breaks back-button behavior"
-tags: flutter, navigation, go_router, routing
+impactDescription: "Avoid incompatible APIs and unsafe mobile integration defaults"
+tags: mobile, integration, correctness
 ---
 
-# Navigation: go_router
+# Flutter routing and auth state
 
-Version: `go_router: ^17.3.0`
+Use the installed go_router version and platform link configuration. Keep a long-lived router; recreating it on every auth event can reset navigation. Read current auth state in redirects and notify the router on changes.
 
-go_router is the Flutter team's recommended navigation package. It supports declarative routing, deep links, URL-based navigation, and route guards.
+## Stream to router refresh adapter
 
-## Basic setup
+`GoRouterRefreshStream` is not a current built-in API. Define an adapter and dispose both it and the router:
 
 ```dart
-// lib/app.dart
-import 'package:go_router/go_router.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 
-final routerProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authStateProvider);
-
-  return GoRouter(
-    initialLocation: '/',
-    redirect: (context, state) {
-      final isLoggedIn = authState.valueOrNull?.session != null;
-      final isAuthRoute = state.matchedLocation.startsWith('/auth');
-
-      if (!isLoggedIn && !isAuthRoute) return '/auth/login';
-      if (isLoggedIn && isAuthRoute) return '/';
-      return null;
-    },
-    routes: [
-      GoRoute(
-        path: '/',
-        builder: (context, state) => const HomeScreen(),
-      ),
-      GoRoute(
-        path: '/auth/login',
-        builder: (context, state) => const LoginScreen(),
-      ),
-      GoRoute(
-        path: '/paywall',
-        builder: (context, state) => const PaywallScreen(),
-      ),
-      GoRoute(
-        path: '/settings',
-        builder: (context, state) => const SettingsScreen(),
-        routes: [
-          GoRoute(
-            path: 'profile',
-            builder: (context, state) => const ProfileScreen(),
-          ),
-        ],
-      ),
-      GoRoute(
-        path: '/post/:id',
-        builder: (context, state) {
-          final id = state.pathParameters['id']!;
-          return PostScreen(id: id);
-        },
-      ),
-    ],
-  );
-});
-
-// In app.dart
-class MyApp extends ConsumerWidget {
-  const MyApp({super.key});
-
+class RouterRefresh extends ChangeNotifier {
+  RouterRefresh(Stream<Object?> events) {
+    _subscription = events.listen((_) => notifyListeners(),
+      onError: (Object error, StackTrace stack) => notifyListeners());
+  }
+  late final StreamSubscription<Object?> _subscription;
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final router = ref.watch(routerProvider);
-    return MaterialApp.router(
-      routerConfig: router,
-    );
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
   }
 }
 ```
 
-## Navigation
+Pass the adapter as `refreshListenable` to `GoRouter`. Track auth loading/error separately; do not treat a restoration-in-progress state as signed out. Redirect signed-out users away from protected routes, allow auth callbacks to complete, and return users to a validated internal destination after sign-in. Route guards do not replace backend authorization.
 
-```dart
-// Push a named route
-context.go('/post/123');
-context.push('/paywall');    // push adds to stack; go replaces
+## Navigation shape
 
-// With query parameters
-context.go('/search?q=flutter');
+- `context.go('/settings')` changes the declarative route location; `context.push('/detail/123')` adds an imperative page.
+- Child route path `profile` under `/settings` produces `/settings/profile`.
+- Use `ShellRoute` for a shared shell; use `StatefulShellRoute.indexedStack` when each tab must preserve its own navigator stack.
+- Parse query parameters via `state.uri.queryParameters`; validate incoming IDs/routes. Avoid constructing URLs by raw string concatenation.
+- Auth callbacks need matching Supabase redirect allowlists, native intent filters/URL schemes, and a configured callback exchange. A route by itself does not guarantee the session is restored.
 
-// Read path parameters in the destination
-final id = GoRouterState.of(context).pathParameters['id'];
+Test cold-start links, auth restoration, sign-out, back navigation, tab stacks, and malformed/unauthorized deep links. In Riverpod 3 use current `AsyncValue` APIs (such as `.value`) rather than removed `.valueOrNull`.
 
-// Read query parameters
-final query = GoRouterState.of(context).uri.queryParameters['q'];
-```
+## Sources
 
-## Shell routes (bottom navigation / tabs)
-
-```dart
-ShellRoute(
-  builder: (context, state, child) => ScaffoldWithBottomNav(child: child),
-  routes: [
-    GoRoute(path: '/home', builder: (_, __) => const HomeScreen()),
-    GoRoute(path: '/discover', builder: (_, __) => const DiscoverScreen()),
-    GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
-  ],
-)
-```
-
-`ShellRoute` persists a common shell widget (like a bottom nav bar) while swapping the child as routes change.
-
-## Auth guard with Riverpod
-
-```dart
-final routerProvider = Provider<GoRouter>((ref) {
-  // Router listens to auth state and rebuilds when it changes
-  ref.listen(authStateProvider, (_, __) {});
-
-  return GoRouter(
-    refreshListenable: GoRouterRefreshStream(
-      Supabase.instance.client.auth.onAuthStateChange,
-    ),
-    redirect: (context, state) {
-      final isAuthenticated = Supabase.instance.client.auth.currentUser != null;
-      if (!isAuthenticated && !state.matchedLocation.startsWith('/auth')) {
-        return '/auth/login';
-      }
-      return null;
-    },
-    routes: [...],
-  );
-});
-```
-
-`GoRouterRefreshStream` converts a Stream into a `Listenable` that triggers router rebuilds.
-
-## Deep link handling
-
-go_router handles deep links automatically when configured in `AndroidManifest.xml` (intent filters) and `Info.plist` (`CFBundleURLTypes`). For Supabase auth email redirects:
-
-```dart
-GoRoute(
-  path: '/auth/callback',
-  builder: (context, state) {
-    // Supabase handles the callback token exchange automatically via deep link
-    return const AuthCallbackScreen();
-  },
-)
-```
-
-## Page transitions
-
-```dart
-GoRoute(
-  path: '/paywall',
-  pageBuilder: (context, state) => CustomTransitionPage(
-    key: state.pageKey,
-    child: const PaywallScreen(),
-    transitionsBuilder: (context, animation, secondaryAnimation, child) {
-      return SlideTransition(
-        position: animation.drive(
-          Tween(begin: const Offset(0, 1), end: Offset.zero)
-              .chain(CurveTween(curve: Curves.easeOut)),
-        ),
-        child: child,
-      );
-    },
-  ),
-)
-```
-
-## Gotchas
-
-- `context.go()` replaces the entire stack; `context.push()` adds to it. Use `go()` for tab navigation, `push()` for drill-down.
-- The `redirect` function is called on every navigation. Keep it fast — no async calls, just read already-loaded state.
-- Nested `GoRoute`s under a parent use relative paths — `/settings/profile`, not `profile`.
-- go_router v17 requires Dart 3.0+ and Flutter 3.22+.
+Reviewed 2026-10-20: [go_router](https://pub.dev/packages/go_router), [Riverpod 3 migration](https://riverpod.dev/docs/3.0_migration).

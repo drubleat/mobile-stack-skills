@@ -1,77 +1,22 @@
 ---
-title: ASO & store assets: screenshots, icon, keywords
-impact: MEDIUM
-impactDescription: "Keyword field (100 chars, iOS) is the highest-leverage ASO lever; screenshots drive 60%+ of conversion"
-tags: store, aso, screenshots, icon, keywords, metadata
+title: "Store assets and accurate metadata"
+impact: HIGH
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# ASO & store assets: screenshots, icon, keywords
+# Store assets and accurate metadata
 
-## App icon
+Create assets from the actual submitted build and supported device families. Use the live App Store Connect screenshot specifications: accepted iPhone size classes can substitute for one another, so do not assume both 6.9-inch and 6.7-inch uploads are always required. iPad screenshots depend on support. Check Google Play's current dimensions, counts and feature-graphic requirements separately.
 
-One source file → all sizes. Use a **1024×1024 PNG** (no transparency on iOS; Android allows transparency). EAS generates all required sizes from this file automatically:
+For Expo, configure the app icon and Android adaptive-icon foreground/background according to the SDK. Preserve safe areas and test cropping/masks on device. App icons are native assets and generally require a new binary; updating an in-app image through OTA is a different case.
 
-```ts
-// app.config.ts
-icon: './assets/icon.png',              // iOS (1024×1024, no alpha)
-android: {
-  adaptiveIcon: {
-    foregroundImage: './assets/adaptive-icon.png',   // Android adaptive icon foreground
-    backgroundColor: '#FFFFFF',
-  },
-}
-```
+Lead screenshots with a real core workflow, keep text readable, localize supported markets and avoid misleading simulated features. Test variants with store experiments instead of claiming universal conversion percentages.
 
-Android adaptive icons: the foreground is centered in a 108dp area with a 72dp "safe zone" for the visible part. Keep important content within the safe zone.
+Write concise app names, subtitles/descriptions and keywords within the limits shown by the current console. Avoid competitor trademarks, fabricated reviews, unsupported health/outcome claims and keyword stuffing. Align pricing/trial statements with actual eligible store products and locales.
 
-## Screenshots (required sizes — 2026)
+Keep editable asset sources, exported files and a record of the build/locale/device used. Verify privacy-policy/support links and accessibility of marketing text. Compare rendered uploads in the console before submitting.
 
-### iOS (required device families)
+## Sources
 
-| Device | Size (portrait) | Required? |
-|---|---|---|
-| iPhone 6.9" (16 Pro Max) | 1320×2868 px | ✅ Required |
-| iPhone 6.7" (15 Plus, 14 Pro Max) | 1290×2796 px | ✅ Required |
-| iPad 13" Pro | 2064×2752 px | Required if iPad supported |
-
-Apple accepts screenshots from larger devices for smaller ones — submit 6.9" and it covers all iPhones. Submit at least 1 screenshot per device family you support. Maximum 10 screenshots per device.
-
-### Android
-
-- Minimum 2 screenshots required.
-- Recommended: 1080×1920 px (portrait) or 1920×1080 px (landscape).
-- No strict required sizes, but Play Console recommends 16:9 or 9:16 aspect ratio.
-
-## Screenshot best practices
-
-- **First screenshot = most important.** 70% of users don't scroll past the first two. Lead with your core value prop, not a login screen.
-- Use **device frames** for iOS (Apple's official frames or Figma mockups). Apple recommends it but doesn't require it.
-- **Localize screenshots** for major markets if you support multiple languages — it meaningfully improves conversion.
-- Show the actual app, not marketing imagery — Apple rejects screenshots that don't accurately represent the UI.
-- **Feature graphic** (Android): 1024×500 px — displayed at the top of your Play Store listing.
-
-## App name, subtitle & keywords (iOS ASO)
-
-| Field | Limit | Impact |
-|---|---|---|
-| **Name** | 30 chars | Highest keyword weight |
-| **Subtitle** | 30 chars | High keyword weight |
-| **Keywords** | 100 chars total | Comma-separated, no spaces after commas |
-| **Description** | 4000 chars | Low keyword weight (mostly for conversion) |
-
-ASO strategy:
-1. Include your primary keyword in the **name** (e.g. "Calorie Counter — Meal Tracker").
-2. Use the **subtitle** for a secondary keyword cluster ("AI Nutrition & Diet Journal").
-3. **Keywords field**: don't repeat words already in name/subtitle; use singular forms only; separate by comma with no space.
-4. Avoid competitor names in keywords — Apple may reject or remove them.
-
-## Android ASO (Play Console)
-
-- **Short description**: 80 chars — appears in search results.
-- **Full description**: 4000 chars — keyword-indexed.
-- **Title**: 30 chars.
-- Play Store uses the full description for keyword indexing more heavily than Apple does.
-
-## Promo text (iOS)
-
-A 170-char field that sits above the description and can be changed **without a new app review** — useful for time-sensitive announcements ("🎉 Now with AI meal scanning!").
+Reviewed 2026-10-20: [Apple screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/screenshot-specifications), [Google preview assets](https://support.google.com/googleplay/android-developer/answer/9866151).

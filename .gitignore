@@ -16,3 +16,13 @@ yarn-error.log*
 # Logs / temp
 *.log
 .tmp/
+
+# Local validation
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+.dart_tool/
+tests/dart/lib/stream.dart

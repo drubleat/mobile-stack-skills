@@ -1,110 +1,36 @@
 ---
-title: Postgres functions & RPC — when to use and how to design them
-impact: MEDIUM-HIGH
-impactDescription: "Server-side functions reduce round-trips, enforce business logic at the DB level, and expose complex queries safely via PostgREST RPC"
-tags: functions, rpc, postgres, postgrest, performance, security
+title: "Postgres RPC security and transactions"
+impact: CRITICAL
+impactDescription: "Prevent unauthorized access and incorrect state transitions"
+tags: security, correctness
 ---
 
-# Postgres functions & RPC
+# Postgres RPC security and transactions
 
-## When to use a function vs a query
-
-| Situation | Approach |
-|---|---|
-| Simple CRUD | PostgREST client `.select()` / `.insert()` |
-| Multi-step atomic operation | Postgres function in a transaction |
-| Complex aggregation or JOIN | Postgres function or view |
-| Security-sensitive write (server enforced) | Postgres function with `security definer` |
-| Avoid N+1 on computed fields | Postgres function returning a table |
-
-## Basic function
+Use an invoker function for ordinary queries and atomic database operations. SECURITY DEFINER executes with its owner's permissions and can bypass RLS; it is not required just because a function writes data.
 
 ```sql
-create or replace function get_user_stats(p_user_id uuid)
-returns json language plpgsql stable security invoker as $$
-declare
-  result json;
-begin
-  select json_build_object(
-    'message_count', count(m.id),
-    'last_active', max(m.created_at)
-  ) into result
-  from messages m
-  where m.user_id = p_user_id;
-  
-  return result;
-end;
+create or replace function public.get_user_stats()
+returns jsonb language sql stable security invoker set search_path = '' as $$
+  select jsonb_build_object('message_count', count(*))
+  from public.messages where user_id = (select auth.uid());
 $$;
+revoke all on function public.get_user_stats() from public, anon;
+grant execute on function public.get_user_stats() to authenticated;
 ```
 
-```ts
-const { data } = await supabase.rpc('get_user_stats', { p_user_id: userId });
-```
+RLS on the underlying table still applies, and callers need the corresponding table privileges. New functions normally grant EXECUTE to PUBLIC; revoking only from `anon` leaves inherited PUBLIC access intact.
 
-## `security invoker` vs `security definer`
+For privileged functions, fix `search_path = ''`, qualify table/function names, derive caller identity, validate all inputs, and grant execution only to intended roles. Put internal helpers in an unexposed schema. Test unauthorized calls.
 
-```sql
--- security invoker (default) — runs as the calling user; RLS applies
--- Use for most functions
+## Transactions and concurrency
 
--- security definer — runs as the function owner (postgres); bypasses RLS
--- Use ONLY when you genuinely need to cross RLS boundaries (e.g., system writes)
--- Always narrow what the function can do to minimize risk
+Each PostgREST RPC call is its own transaction. A transaction-scoped advisory lock is released when the RPC returns; it cannot protect later HTTP calls from an Edge Function. Put all protected database work in the same function, or use an explicit lease/job queue for external work.
 
-create or replace function create_user_profile()
-returns void language plpgsql security definer
-set search_path = public  -- prevent search_path hijacking
-as $$
-begin
-  insert into profiles(id, username)
-  values (auth.uid(), 'user_' || left(auth.uid()::text, 8));
-end;
-$$;
-```
+A transfer example must validate a positive amount, authorize the source account, lock both accounts in deterministic order, ensure sufficient balance and recipient existence, and enforce idempotency. Merely subtracting then adding inside a SECURITY DEFINER function allows unauthorized debits and negative transfers. Do not expose a simplified transfer snippet as production code.
 
-## Returning a table (for PostgREST filtering/pagination)
+Functions returning `SETOF` a table can be filtered with PostgREST. Preserve RLS and stable pagination; cap expensive queries. An exception rolls back database writes in that transaction, but cannot undo external API side effects.
 
-```sql
-create or replace function search_posts(search_term text)
-returns setof posts language sql stable security invoker as $$
-  select * from posts
-  where to_tsvector('english', title || ' ' || content) @@ plainto_tsquery('english', search_term)
-    and user_id = (select auth.uid())
-  order by created_at desc;
-$$;
-```
+## Sources
 
-PostgREST exposes table-returning functions with the same filtering syntax as tables:
-
-```ts
-const { data } = await supabase
-  .rpc('search_posts', { search_term: 'flutter' })
-  .order('created_at', { ascending: false })
-  .limit(20);
-```
-
-## Transaction wrapping
-
-```sql
-create or replace function transfer_credits(
-  from_user uuid,
-  to_user uuid,
-  amount int
-) returns void language plpgsql security definer set search_path = public as $$
-begin
-  update user_credits set balance = balance - amount where user_id = from_user;
-  update user_credits set balance = balance + amount where user_id = to_user;
-  -- Both updates succeed or both roll back (atomic by default in a function)
-end;
-$$;
-```
-
-## Grant execute
-
-By default, functions in `public` schema are executable by `authenticated` and `anon` roles. Be explicit:
-
-```sql
--- Restrict to authenticated users only
-revoke execute on function get_user_stats(uuid) from anon;
-grant execute on function get_user_stats(uuid) to authenticated;
-```
+Reviewed 2026-10-20: [Supabase database functions](https://supabase.com/docs/guides/database/functions), [PostgREST transactions](https://docs.postgrest.org/en/stable/references/transactions.html).

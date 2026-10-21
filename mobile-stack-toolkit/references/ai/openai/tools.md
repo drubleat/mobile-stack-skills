@@ -1,123 +1,70 @@
 ---
-title: OpenAI function calling & tool use
+title: "OpenAI function calling"
 impact: HIGH
-impactDescription: "Structured tool use with `strict: true` eliminates hallucinated argument shapes and enables reliable agentic flows"
-tags: openai, function-calling, tools, structured-output
+impactDescription: "Use the provider API correctly while preserving server authorization"
+tags: ai, mobile, api
 ---
 
-# OpenAI function calling & tool use
+# OpenAI function calling
 
-Function calling lets the model invoke your application's functions in a structured way — it decides when to call, what args to pass, and you execute the function and feed the result back. The result is reliable, typed integrations between the model and real-world actions.
+The model requests actions; your server validates and authorizes their execution. A schema is not authorization. Use an allowlist, authenticated user context, idempotency for writes, and bounded tool rounds.
 
-## Define a tool
+## Strict schema
 
 ```ts
-const tools = [
-  {
-    type: 'function' as const,
-    name: 'get_nutrition_data',
-    description: 'Look up calorie and macro data for a food item by name.',
-    parameters: {
-      type: 'object',
-      properties: {
-        food_name:  { type: 'string', description: 'The name of the food, e.g. "apple" or "grilled chicken breast"' },
-        serving_g:  { type: 'number', description: 'Serving size in grams. Default 100 if not specified.' },
-      },
-      required: ['food_name'],
-      additionalProperties: false,
+const tools = [{
+  type: 'function' as const,
+  name: 'get_nutrition_data',
+  description: 'Look up nutritional information for a named food and serving size.',
+  strict: true,
+  parameters: {
+    type: 'object',
+    properties: {
+      food_name: { type: 'string' },
+      serving_g: { type: ['number', 'null'] },
     },
-    strict: true,  // model must match schema exactly
+    required: ['food_name', 'serving_g'],
+    additionalProperties: false,
   },
-];
+}];
 ```
 
-**`strict: true`** forces the model to match the schema — no extra fields, no missing required params. Use it for production. Without it, the model may add fields or omit required ones, causing parse errors.
+Strict function schemas require all properties in `required`; represent an optional value with a nullable type. Validate positive ranges and application semantics again on the server.
 
-## The tool-use loop
+## Bounded response loop
 
 ```ts
-// 1. Initial request with tools
-const response = await openai.responses.create({
-  model: 'gpt-5.4-mini',
-  instructions: 'Help users log meals. Use get_nutrition_data to look up food information.',
-  input: userMessage,
-  tools,
-});
-
-// 2. Check if the model wants to call a tool
-const toolCalls = response.output.filter(o => o.type === 'function_call');
-
-if (toolCalls.length > 0) {
-  // 3. Execute each tool call
-  const toolResults = await Promise.all(toolCalls.map(async (call) => {
-    const args = JSON.parse(call.arguments);
-    const result = await executeTool(call.name, args);  // your function
-    return {
-      type: 'function_call_output' as const,
-      call_id: call.call_id,
-      output: JSON.stringify(result),
-    };
-  }));
-
-  // 4. Send results back — model produces final answer
-  const finalResponse = await openai.responses.create({
-    model: 'gpt-5.4-mini',
-    instructions: 'Help users log meals.',
-    input: [
-      .../* original messages */,
-      ...response.output,          // includes the function_call items
-      ...toolResults,              // function_call_output items
-    ],
-    tools,
+const instructions = 'Help users log meals using available nutrition data.';
+let response = await openai.responses.create({ model, instructions, input: userMessage, tools });
+for (let round = 0; round < 5; round++) {
+  const calls = response.output.filter(item => item.type === 'function_call');
+  if (calls.length === 0) {
+    if (response.status !== 'completed') throw new Error('Incomplete response');
+    return response.output_text;
+  }
+  const outputs = [];
+  for (const call of calls) {
+    // Application-owned function: validate name/args, check user permissions,
+    // and enforce idempotency/approval before any consequential side effect.
+    const result = await executeAuthorizedTool(user, call.name, JSON.parse(call.arguments));
+    outputs.push({ type: 'function_call_output' as const, call_id: call.call_id,
+      output: JSON.stringify(result) });
+  }
+  response = await openai.responses.create({
+    model, instructions, tools,
+    previous_response_id: response.id,
+    input: outputs,
   });
-  return finalResponse.output_text;
 }
-
-return response.output_text;
+throw new Error('Tool round limit exceeded');
 ```
 
-## Parallel tool calls
+This excerpt uses stored response chaining. Re-send instructions on each request. For stateless/manual chaining, retain the relevant complete output items, including reasoning items required by the model, plus tool results. Do not let a client attach another user's response ID.
 
-The model can call multiple tools in one turn. `toolCalls` may contain several items — run them in `Promise.all` (as above) and return all results in a single follow-up request. Don't loop: one round-trip per model turn.
+Parallelize independent read-only calls when helpful; dependent writes must preserve ordering. A follow-up can request more tools, so one follow-up is not necessarily the final answer. Handle refusals, incomplete responses, argument parse errors, and provider failures explicitly.
 
-## Built-in tools (no execution loop needed)
+Provider-hosted tools such as web/file search execute within the API; your custom functions execute in your application. For typed data without actions use [structured output](../structured-output.md).
 
-OpenAI's Responses API has first-party tools the API executes internally:
+## Sources
 
-```ts
-tools: [
-  { type: 'web_search' },          // model searches the web
-  { type: 'file_search', vector_store_ids: ['vs_...'] },  // semantic search over your files
-]
-```
-
-For these, you don't handle a tool-call loop — the API completes the search and folds the result into the response automatically.
-
-## Controlling tool invocation
-
-```ts
-tool_choice: 'auto'         // model decides (default)
-tool_choice: 'required'     // must use at least one tool
-tool_choice: 'none'         // text only, ignore tools
-tool_choice: { type: 'function', name: 'get_nutrition_data' }  // force a specific tool
-```
-
-Use `tool_choice: 'required'` when the tool is the point — e.g. a "analyze this receipt" flow where you always want structured extraction, not a conversational fallback.
-
-## Common mistakes
-
-- **Missing `call_id` in the response.** The `function_call_output` item must include the exact `call_id` from the `function_call` item. Mismatch = API error.
-- **Not running tools in parallel.** The model may request 3 lookups at once; running them sequentially triples latency.
-- **Tool descriptions that are too vague.** The model picks tools based on description + param names. "Do something with food" is worse than "Look up calorie and macro data for a food item by name."
-- **Exposing internal APIs as tools without auth.** If a tool calls an internal service, your Edge Function is the auth layer — the model doesn't handle that.
-- **Schema without `additionalProperties: false`.** Without it the model may pass extra params, breaking typed arg parsing.
-
-## Structured output vs function calling
-
-| | Structured output | Function calling |
-|---|---|---|
-| Use for | Getting typed data from the model | Triggering side effects or lookups |
-| Execution | None (model produces the value) | You run the function |
-| Response shape | `output_text` → `JSON.parse()` | `function_call` → execute → `function_call_output` |
-
-Use structured output when you just want the model to return typed data. Use function calling when the model needs external information to complete its answer, or needs to trigger an action.
+Reviewed 2026-10-20: [Function calling](https://developers.openai.com/api/docs/guides/function-calling).

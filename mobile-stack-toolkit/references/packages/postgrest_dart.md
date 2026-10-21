@@ -1,5 +1,5 @@
 ---
-title: postgrest 2.7.1 — PostgREST Dart client
+title: "postgrest 2.7.1 — PostgREST Dart client"
 impact: MEDIUM-HIGH
 impactDescription: "Low-level PostgREST client used by supabase_flutter; useful for custom query builder patterns"
 tags: dart, supabase, postgrest, queries
@@ -7,7 +7,7 @@ tags: dart, supabase, postgrest, queries
 
 # postgrest — PostgREST Dart query builder
 
-**Version:** 2.7.1  
+**Historical example baseline:** 2.7.1   — resolve a compatible installed version before using these snippets.
 **Platforms:** all Dart platforms
 
 ```yaml
@@ -60,10 +60,10 @@ final row = await client
 .ilike('email', '%@gmail.com') // case-insensitive LIKE
 
 // Set membership
-.in_('status', ['active', 'pending'])
+.inFilter('status', ['active', 'pending'])
 
 // Null checks
-.is_('deleted_at', null)
+.isFilter('deleted_at', null)
 .not('deleted_at', 'is', null)
 
 // Range
@@ -91,7 +91,7 @@ final row = await client
 ```dart
 // Get total count alongside data
 final response = await client.from('posts')
-    .select('*', const FetchOptions(count: CountOption.exact))
+    .select('*').count(CountOption.exact)
     .limit(20);
 
 print(response.count);  // total matching rows (ignores .limit)

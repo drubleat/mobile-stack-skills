@@ -1,76 +1,43 @@
 ---
-title: Bootstrap & project structure
+title: "Expo bootstrap and project structure"
 impact: HIGH
-impactDescription: "Correct folder layout and app.json config prevents native build failures and config plugin conflicts"
-tags: expo, scaffold, project-structure, expo-router
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# Bootstrap & project structure
+# Expo bootstrap and project structure
 
-## Scaffold
+Inspect an existing app's package.json, lockfile, app config and native directories before changing its stack. For a new app:
 
 ```bash
-npx create-expo-app@latest my-app            # Expo Go-friendly SDK (currently 54)
-npx create-expo-app@latest my-app --template default@sdk-56   # latest SDK 56
+npx create-expo-app@latest my-app
+cd my-app
+npx expo install --check
+npx expo-doctor
 ```
 
-**SDK 54 vs 56 trap (June 2026):** `create-expo-app@latest` *without* a template still scaffolds **SDK 54**, because Expo Go on the stores tracks the SDK that the public Expo Go app supports. **SDK 56** (RN 0.85, React 19.2) is current but you reach it with `--template default@sdk-56`. If you'll add native modules anyway (you will), pick 56 and plan for Dev Builds — Expo Go compatibility stops mattering.
+Scaffold defaults change during SDK transitions. Inspect the generated Expo/React Native/React versions and current release guide; do not promise a fixed SDK from `@latest`. Use an explicit supported template when needed. Keep lockfiles and choose the project's package manager consistently.
 
-The default template already includes **expo-router** (file-based routing) and TypeScript. Don't fight it; embrace file-based routing.
+Use `expo install` for Expo/native dependencies with compatibility mappings; ordinary JS dependencies can use the package manager. It does not guarantee compatibility for every third-party package. Review `--fix` changes and rebuild after native changes.
 
-## Install dependencies the right way
+Keep routes in `app/` or the project's existing `src/app/`, shared UI in components, feature logic in features, and configured clients in lib. Route groups organize navigation; they are not authorization. Use [architecture](architecture.md) for session lifecycle and [Expo Router](expo-router.md) for routing.
 
-Always `npx expo install <pkg>` instead of `npm install <pkg>`. `expo install` pins versions that are **compatible with your SDK**; raw `npm install` pulls `latest` and silently breaks the native build. Run `npx expo install --check` / `--fix` to audit drift.
-
-## Folder structure (opinionated, scales well)
-
-```
-my-app/
-├── app/                      # expo-router routes — the URL map of your app
-│   ├── (auth)/               # route group: login, signup (no URL segment)
-│   ├── (tabs)/               # route group: the main tab navigator
-│   │   ├── _layout.tsx       # <Tabs> definition
-│   │   └── index.tsx         # first tab
-│   ├── _layout.tsx           # root layout: providers + auth gate live here
-│   └── +not-found.tsx
-├── components/               # dumb, reusable UI
-├── features/                 # optional: feature-sliced (chat/, paywall/, ...)
-├── lib/                      # singletons & clients
-│   ├── supabase.ts
-│   ├── revenuecat.ts
-│   └── ai.ts                 # thin client that calls your Edge Function
-├── hooks/                    # useUser, useEntitlement, ...
-├── constants/                # theme, colors, config
-├── supabase/                 # migrations/ and functions/ (if using Supabase)
-├── assets/
-├── app.config.ts             # dynamic config (see below)
-├── eas.json
-└── tsconfig.json             # set up the "@/*" path alias
-```
-
-**Route groups** `(name)/` organize files without adding a URL segment — perfect for separating an authenticated stack from the auth screens. Put the auth redirect logic in the root `app/_layout.tsx`; see [architecture.md](architecture.md).
-
-## `app.config.ts` over `app.json`
-
-Switch to a dynamic **`app.config.ts`** as soon as you need env-driven values (different bundle IDs per build profile, plugin args, secrets wiring). It's plain TypeScript that returns the config object, so you can read `process.env`:
+Dynamic app config should preserve nested settings:
 
 ```ts
-export default ({ config }) => ({
+import type { ConfigContext, ExpoConfig } from 'expo/config';
+export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: process.env.APP_VARIANT === 'dev' ? 'MyApp (Dev)' : 'MyApp',
-  ios: { bundleIdentifier: 'com.you.myapp' },
-  android: { package: 'com.you.myapp' },
-  extra: { easProjectId: 'your-eas-project-id' },
-  plugins: ['expo-router', 'expo-secure-store', /* native plugins */],
+  name: config.name ?? 'MyApp',
+  slug: config.slug ?? 'my-app',
+  ios: { ...config.ios, bundleIdentifier: 'com.example.myapp' },
+  android: { ...config.android, package: 'com.example.myapp' },
+  extra: { ...config.extra, eas: { ...config.extra?.eas, projectId: 'EAS_PROJECT_ID' } },
 });
 ```
 
-## Env vars
+`EXPO_PUBLIC_*` and values included in client config/bundles are public. Use them for publishable config only. Secret visibility in a build service cannot keep a value secret after code embeds it into an app. See [release secrets](../cicd/secrets-release.md). Confirm startup on the chosen [development build](native-dev-builds.md) and each target platform.
 
-- `EXPO_PUBLIC_*` vars are **inlined into the JS bundle** — readable by anyone with the APK/IPA. Use only for non-secrets (Supabase URL + anon key, RevenueCat public key).
-- Real secrets never touch the client. They live in Edge Function secrets / EAS Secrets — see [../cicd/secrets-release.md](../cicd/secrets-release.md).
-- For build-time env across profiles, use **EAS Environment Variables** (`eas env:create`) rather than committing `.env` files.
+## Sources
 
-## What "done with bootstrap" looks like
-
-You can `npx expo start`, open the app (Expo Go or a Dev Build), see the router working, and `lib/supabase.ts` (or whichever backend client you chose) is initialized. Next: pick your build flow → [native-dev-builds.md](native-dev-builds.md).
+Reviewed 2026-10-20: [create project](https://docs.expo.dev/get-started/create-a-project/), [app config](https://docs.expo.dev/workflow/configuration/).

@@ -1,5 +1,5 @@
 ---
-title: Flutter CI/CD: Codemagic vs GitHub Actions
+title: "Flutter CI/CD: Codemagic vs GitHub Actions"
 impact: MEDIUM-HIGH
 impactDescription: "Codemagic has Flutter-native signing workflows; GitHub Actions is cheaper at scale with proper Fastlane setup"
 tags: flutter, cicd, codemagic, github-actions, fastlane
@@ -95,10 +95,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 'stable'
+          channel: 'stable'
           cache: true
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
@@ -108,10 +108,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 'stable'
+          channel: 'stable'
           cache: true
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
@@ -132,10 +132,10 @@ jobs:
     runs-on: macos-latest           # iOS build requires macOS runner
     needs: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 'stable'
+          channel: 'stable'
           cache: true
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
@@ -173,7 +173,7 @@ jobs:
 
 ## Code generation in CI
 
-Always run `dart run build_runner build` in CI before building. Generated files (`*.g.dart`, `*.freezed.dart`) should be in `.gitignore` — regenerate them in every build rather than committing them.
+Run code generation only when this project uses generators. Follow the repository policy for committing or regenerating generated files; verify generated output is current.
 
 ```bash
 dart run build_runner build --delete-conflicting-outputs
@@ -184,7 +184,8 @@ dart run build_runner build --delete-conflicting-outputs
 Flutter uses `version: 1.0.0+1` in `pubspec.yaml` (version + build number). Automate build number increment in CI:
 
 ```bash
-# Get commit count as build number
-BUILD_NUMBER=$(git rev-list --count HEAD)
-flutter build appbundle --release --build-number=$BUILD_NUMBER
+# Use a monotonically increasing release counter from your CI/release system.
+flutter build appbundle --release --build-number="$RELEASE_BUILD_NUMBER"
 ```
+
+Signing snippets require complete provisioning, keystore and export-options setup; certificates alone are insufficient. Pin tested Flutter/Xcode versions for reproducible releases and pass CI values through quoted environment variables.

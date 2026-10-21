@@ -1,133 +1,34 @@
 ---
-title: Push notification handlers: foreground / background / killed
+title: "Notification lifecycle handlers"
 impact: HIGH
-impactDescription: "Behavior differs across three app states and between Expo Push and FCM; missing a handler silently drops notifications"
-tags: push, handlers, foreground, background, fcm, expo
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# Push notification handlers: foreground / background / killed
+# Notification lifecycle handlers
 
-The hardest part of push setup isn't delivery — it's handling the message correctly across all three app states. The behavior differs by state and by whether you're using Expo Push or FCM.
+Separate receipt, display and navigation. Register one handler for each lifecycle event and dispose listeners. Never assume a data-only message will wake a suspended or force-stopped app; OS power policies, payload priority and user settings affect delivery.
 
-## The three app states
+For RN Firebase use modular `onMessage`, `setBackgroundMessageHandler`, `onNotificationOpenedApp` and `getInitialNotification`. Register the background handler at the app entrypoint; it performs bounded non-UI work. If Notifee handles display/open events in the installed integration, use its documented event APIs and avoid duplicate navigation.
 
-| State | App is... | Handler fires |
-|---|---|---|
-| **Foreground** | Open and active | Immediate, on the JS thread |
-| **Background** | In memory but not focused | Background handler (limited JS context) |
-| **Killed** | Not running | Notification opens the app; check `getInitialNotification` |
-
-## FCM handlers (@react-native-firebase/messaging)
-
-### Foreground
-
-```ts
-useEffect(() => {
-  const unsubscribe = messaging().onMessage(async remoteMessage => {
-    // App is open — FCM does NOT auto-show a notification banner
-    // You must display it yourself (or use a local notification)
-    console.log('Foreground message:', remoteMessage);
-    // Show a local notification or update in-app UI
-  });
-  return unsubscribe;
-}, []);
-```
-
-**FCM suppresses the system banner in foreground.** You must show it yourself with `@notifee/react-native` or `expo-notifications` local notification API if you want a visible alert.
-
-### Background (app suspended, not killed)
-
-```ts
-// Outside any component — top level of index.js or App.tsx
-messaging().setBackgroundMessageHandler(async remoteMessage => {
-  // Limited context: no React, no hooks, no navigation
-  // Safe to do: AsyncStorage reads, fetch calls, simple logging
-  console.log('Background message:', remoteMessage.data);
-});
-```
-
-The background handler runs in a headless JS context. No UI updates here.
-
-### Killed → initial notification
-
-```ts
-useEffect(() => {
-  messaging()
-    .getInitialNotification()
-    .then(remoteMessage => {
-      if (remoteMessage) {
-        // App was opened by tapping a notification from killed state
-        handleNotificationNavigation(remoteMessage.data);
-      }
-    });
-
-  // Also handle when app is backgrounded (not killed) and user taps
-  const unsubscribe = messaging().onNotificationOpenedApp(remoteMessage => {
-    handleNotificationNavigation(remoteMessage.data);
-  });
-  return unsubscribe;
-}, []);
-```
-
-## Expo notifications handlers
-
-```ts
-// Foreground received
-Notifications.addNotificationReceivedListener(notification => {
-  console.log('Foreground notification:', notification);
-  // Expo DOES show the banner if setNotificationHandler returns shouldShowAlert: true
-});
-
-// User tapped notification (any state)
-Notifications.addNotificationResponseReceivedListener(response => {
-  const data = response.notification.request.content.data;
-  handleNotificationNavigation(data);
-});
-
-// Killed state — check on launch
-Notifications.getLastNotificationResponseAsync().then(response => {
-  if (response) handleNotificationNavigation(response.notification.request.content.data);
-});
-```
-
-## Notification data payload
-
-Use `data` (not `notification`) for reliable cross-state delivery. A **notification** payload (title/body) is handled by the OS and may not wake your background handler. A **data-only message** always goes to your background handler.
+FCM HTTP v1 payload shape:
 
 ```json
-// Server payload for FCM (data-only for reliable background)
 {
-  "to": "<fcm_token>",
-  "data": {
-    "title": "New message",
-    "body": "You have a new message",
-    "screen": "chat",
-    "roomId": "123"
+  "message": {
+    "token": "DEVICE_FCM_TOKEN",
+    "notification": { "title": "Update ready", "body": "Open to view details" },
+    "data": { "type": "item_updated", "item_id": "123" }
   }
 }
 ```
 
-Parse `data.title`/`data.body` in your background handler and show a local notification manually.
+Data values are strings. This is sent by a trusted server with an OAuth access token to the project-specific v1 endpoint, not the retired legacy `to` endpoint. See [server send](server-send.md).
 
-## Android notification channels
+Foreground display is an application decision. iOS presentation options or a local notification library can show a banner; avoid showing both. Android local display needs a configured channel. In background, notification payloads may be displayed by the OS; a separate local notification can duplicate them.
 
-Required on Android 8+ for foreground and local notifications:
+On open, use [validated deep links](deep-linking.md) after authentication/navigation readiness. Fetch authorized content from the server; do not trust payload text as current state or authority. Test foreground, background, terminated, denied permission, account switch and duplicate delivery.
 
-```ts
-// With @notifee/react-native (recommended for FCM)
-await notifee.createChannel({
-  id: 'default',
-  name: 'Default Channel',
-  importance: AndroidImportance.HIGH,
-  sound: 'default',
-});
-```
+## Sources
 
-Or set `channelId` in your FCM server payload.
-
-## Common pitfalls
-
-- **No foreground banner (FCM)** → FCM doesn't auto-show banners when the app is open. Show a local notification from the `onMessage` handler.
-- **Background handler crashes** → accessing React context or navigation in the background handler; it's headless JS only.
-- **`getInitialNotification` always null** → called too early (before Firebase initializes) or the notification was a data-only message with no `notification` object.
-- **Android silent notifications on battery saver** → doze mode kills background processing; use FCM high-priority messages and data-only payloads.
+Reviewed 2026-10-20: [FCM message types](https://firebase.google.com/docs/cloud-messaging/customize-messages/set-message-type), [RN messaging](https://rnfirebase.io/messaging/usage).

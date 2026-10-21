@@ -1,7 +1,7 @@
 ---
-title: Structured output — provider-agnostic guide
+title: "Structured output — provider-agnostic guide"
 impact: HIGH
-impactDescription: "API-enforced JSON schemas eliminate parse errors and retry loops; prompt-only JSON is unreliable at scale"
+impactDescription: "Schema-constrained output reduces format errors; still handle refusals, incomplete responses and domain validation"
 tags: ai, structured-output, json, openai, gemini
 ---
 
@@ -15,7 +15,7 @@ Getting JSON back from an LLM reliably enough for production use requires both p
 
 **2. JSON mode:** Tell the API to return valid JSON (but no schema). The model won't add markdown fences, but it can still return any shape.
 
-**3. JSON Schema / Structured Output:** Provide a schema; the API guarantees the response matches it. Use this. Both OpenAI and Gemini support it.
+**3. JSON Schema / Structured Output:** Provide a schema; successful structured responses conform to the supported schema; refusals and incomplete responses still need handling. Use this. Both OpenAI and Gemini support it.
 
 ## OpenAI — JSON Schema (Responses API)
 
@@ -45,7 +45,7 @@ const response = await openai.responses.create({
 const meal = JSON.parse(response.output_text);
 ```
 
-`strict: true` + `additionalProperties: false` = the model either matches the schema exactly or refuses. Handles missing fields with nulls if the field isn't `required`.
+`strict: true` + `additionalProperties: false` = the model either matches the schema exactly or refuses. In OpenAI strict mode, all properties must be required; represent optional values using a nullable type. Check refusal/incomplete states before JSON.parse.
 
 ## Gemini — responseSchema
 

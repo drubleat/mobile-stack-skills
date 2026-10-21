@@ -1,100 +1,30 @@
 ---
-title: Gemini Imagen 4 — image generation
-impact: MEDIUM
-impactDescription: "Imagen 4 via Gemini API; aspect ratio config and safety filter tuning differ from OpenAI image gen"
-tags: gemini, imagen, image-generation, google
+title: "Google image generation: migrate from Imagen"
+impact: HIGH
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# Gemini Imagen 4 — image generation
+# Google image generation: migrate from Imagen
 
-Imagen 4 is Google's current image generation model family, available via the Gemini API. High-quality photorealistic and artistic image generation with configurable aspect ratios.
-
-## Models
-
-| Model ID | Notes |
-|---|---|
-| `imagen-4.0-generate-001` | Standard — best quality/cost balance |
-| `imagen-4.0-ultra-generate-001` | Ultra — highest quality, slowest, most expensive |
-| `imagen-4.0-fast-generate-001` | Fast — lower quality, fast turnaround |
-
-## Basic generation
+The Gemini API Imagen endpoint is retired. Keep this reference path for migration, but use a supported image-capable Gemini model through `generateContent`. Do not carry Imagen-specific `generateImages` options or response parsing into that request.
 
 ```ts
-import { GoogleGenAI } from 'npm:@google/genai';
-const ai = new GoogleGenAI({ apiKey: Deno.env.get('GEMINI_API_KEY') });
-
-const response = await ai.models.generateImages({
-  model: 'imagen-4.0-generate-001',
-  prompt: 'A flat design illustration of a mobile app showing a fitness dashboard with circular progress rings, vibrant colors on a dark background',
-  config: {
-    numberOfImages: 1,           // 1–4
-    aspectRatio: '9:16',         // 1:1 | 3:4 | 4:3 | 9:16 | 16:9
-    imageSize: '1K',             // '1K' | '2K' (standard/ultra only)
-    personGeneration: 'DONT_ALLOW',  // 'DONT_ALLOW' | 'ALLOW_ADULT'
-  },
+// Server-side integration fragment; model and prompt are validated server inputs.
+const response = await ai.models.generateContent({
+  model: imageModel,
+  contents: prompt,
+  config: { responseModalities: ['TEXT', 'IMAGE'] },
 });
-
-// Output: array of base64-encoded PNG images
-const imageBase64 = response.generatedImages![0].image!.imageBytes;
-const imageBuffer = Buffer.from(imageBase64, 'base64');
+const parts = response.candidates?.[0]?.content?.parts ?? [];
+const images = parts.flatMap(part => part.inlineData?.data ? [part.inlineData] : []);
+if (!images.length) throw new Error('No image returned');
 ```
 
-## Configuration options
+Check returned MIME types, decoded byte sizes and output count before storage. Store private user output under a server-derived user ID, check upload errors, and return a short-lived URL. Do not label every response PNG or dereference the first candidate unconditionally. Text-only or blocked output is a normal failure case to handle.
 
-| Param | Values | Notes |
-|---|---|---|
-| `numberOfImages` | 1–4 | Default 4; usually use 1 for production to control cost |
-| `aspectRatio` | `1:1`, `3:4`, `4:3`, `9:16`, `16:9` | Pick based on where the image is displayed |
-| `imageSize` | `1K`, `2K` | `2K` only on standard/ultra; not on fast |
-| `personGeneration` | `DONT_ALLOW`, `ALLOW_ADULT` | `ALLOW_ALL` blocked in EU/UK/MENA regions |
+Select model-specific aspect ratio, resolution and editing options from the live guide. Test these with the account/backend being deployed; Gemini Developer API and Vertex availability can differ. Apply [guardrails](../guardrails.md) before generation. See [OpenAI images](../openai/image-generation.md) for that provider's distinct request and storage flow.
 
-## Prompt tips for Imagen
+## Sources
 
-- **English only** — Imagen 4 supports English prompts only. Max 480 tokens.
-- Be descriptive about style: "watercolor illustration", "photorealistic product render", "flat design icon".
-- Keep in-image text short (≤25 chars) for best text rendering results.
-- Mention composition: "centered on white background", "bird's eye view", "close-up detail".
-- Imagen handles photorealistic people well at `ALLOW_ADULT` — specify age/demographic explicitly.
-
-## Storing and serving images
-
-Images come as raw base64 bytes. Always store them — don't serve raw base64 to the client:
-
-```ts
-// Edge Function: generate → upload to Supabase Storage → return URL
-const imageBytes = response.generatedImages![0].image!.imageBytes;
-const imageBuffer = Buffer.from(imageBytes, 'base64');
-const path = `${userId}/generated/${Date.now()}.png`;
-
-await supabaseAdmin.storage
-  .from('generated-images')
-  .upload(path, imageBuffer, { contentType: 'image/png' });
-
-const { data: { publicUrl } } = supabaseAdmin.storage
-  .from('generated-images')
-  .getPublicUrl(path);
-
-return new Response(JSON.stringify({ url: publicUrl }), { headers: cors });
-```
-
-## Safety & limitations
-
-- All outputs include a **SynthID watermark** (invisible, machine-readable).
-- Requests violating Google's content policy are rejected.
-- `ALLOW_ALL` (permits children in images) is **blocked in EU, UK, Switzerland, and MENA** — use `ALLOW_ADULT` as the safe default.
-- No negative prompting param — phrase positively.
-- No image editing / inpainting API (unlike OpenAI) — generation only.
-
-## When to use Imagen vs GPT Image 2
-
-| | Imagen 4 | GPT Image 2 |
-|---|---|---|
-| Style control | Strong | Strong |
-| Instruction following | Very good | Excellent |
-| Text in images | Limited (≤25 chars) | Better |
-| Image editing (inpainting) | ❌ Not supported | ✅ Yes |
-| Aspect ratios | 5 presets | More flexible |
-| English-only | ✅ Yes | No restriction |
-| SynthID watermark | ✅ Auto | Optional |
-
-Imagen is a strong default if you're already in the Gemini ecosystem. Use GPT Image 2 if you need in-image editing or better text rendering.
+Reviewed 2026-10-20: [Imagen retirement](https://ai.google.dev/gemini-api/docs/imagen), [image generation](https://ai.google.dev/gemini-api/docs/image-generation).

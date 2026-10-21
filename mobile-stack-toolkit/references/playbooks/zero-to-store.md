@@ -1,5 +1,5 @@
 ---
-title: Zero to App Store: full build sequence
+title: "Zero to App Store: full build sequence"
 impact: HIGH
 impactDescription: "Ordered phase sequence from scaffold to submission with clear exit criteria; prevents skipping steps that cause late failures"
 tags: playbooks, workflow, expo, supabase, revenuecat, store
@@ -9,19 +9,19 @@ tags: playbooks, workflow, expo, supabase, revenuecat, store
 
 The ordered sequence from idea to shipped app. Each phase has a clear exit criterion before moving to the next.
 
-## Phase 1: Foundation (Day 1–2)
+## Phase 1: Foundation
 
 **Exit: app runs on physical device with auth working end-to-end.**
 
 1. **Create Supabase project** (staging + production projects).
-2. `npx create-expo-app@latest myapp --template tabs` — start from SDK 56 template, not bare.
+2. `npx create-expo-app@latest myapp --template tabs` — inspect the generated SDK and compatible package versions.
 3. `eas build:configure` — sets up EAS project, credentials, `eas.json`.
 4. Write initial migration: `profiles` table + `handle_new_user` trigger → `supabase/migrations/`.
 5. `supabase db push` to staging.
 6. Implement Supabase auth (OTP email or native Google/Apple sign-in).
 7. Test auth on physical device via dev build: `eas build --profile development --platform ios`.
 
-## Phase 2: Core feature (Day 3–7)
+## Phase 2: Core feature
 
 **Exit: the core user action works (AI call returns, content displays, data saves).**
 
@@ -32,7 +32,7 @@ The ordered sequence from idea to shipped app. Each phase has a clear exit crite
 5. Add basic RLS policies to all new tables.
 6. Test on device: end-to-end flow from sign-in → core action → result displayed.
 
-## Phase 3: Monetization (Day 8–10)
+## Phase 3: Monetization
 
 **Exit: test purchase completes in sandbox and updates subscription in Supabase.**
 
@@ -45,7 +45,7 @@ The ordered sequence from idea to shipped app. Each phase has a clear exit crite
 7. Verify `subscriptions` table updates correctly for INITIAL_PURCHASE and EXPIRATION events.
 8. Gate core feature behind entitlement check (both client UI + Edge Function server check).
 
-## Phase 4: Push notifications (Day 11–12)
+## Phase 4: Push notifications
 
 **Exit: test push notification received on physical device from server send.**
 
@@ -57,19 +57,19 @@ The ordered sequence from idea to shipped app. Each phase has a clear exit crite
 6. Write Edge Function or Supabase scheduled job that sends FCM pushes.
 7. Test: trigger notification from server; confirm receipt in all three app states.
 
-## Phase 5: Crash reporting + analytics (Day 13)
+## Phase 5: Crash reporting + analytics
 
 **Exit: test crash appears in Crashlytics dashboard; custom event in Firebase Analytics.**
 
 1. Add `@react-native-firebase/crashlytics` + `@react-native-firebase/analytics`.
-2. Set `crashlytics().setUserId(supabaseUserId)` on sign-in.
+2. Set the Crashlytics user through the modular SDK after consent; clear it on sign-out.
 3. Add `logEvent` calls at key conversion points (sign_up, paywall_viewed, purchase_started).
 4. Add Remote Config for any feature flags you plan to A/B test.
 5. Build production: `eas build --profile production`.
 
-## Phase 6: Store submission (Day 14–21)
+## Phase 6: Store submission
 
-**Exit: app live in both stores.**
+**Exit: release candidates submitted with all applicable testing, privacy and account requirements met; store approval timing is external.**
 
 1. Capture screenshots on physical device (6.9" iPhone + Pixel device).
 2. Write App Store metadata (name, subtitle, keywords, description).
@@ -79,7 +79,7 @@ The ordered sequence from idea to shipped app. Each phase has a clear exit crite
 6. RevenueCat → configure ASC In-App Purchase Key (preferred over shared secret).
 7. Set up EAS Workflows or GitHub Actions for future CI/CD.
 
-## Phase 7: Post-launch (Week 3+)
+## Phase 7: Post-launch
 
 1. Monitor Crashlytics daily for 7 days after release.
 2. Monitor RevenueCat dashboard for subscription events + RC↔Supabase sync.
@@ -94,3 +94,5 @@ The ordered sequence from idea to shipped app. Each phase has a clear exit crite
 - `useFrameworks: 'static'` **before** native build with Firebase (pod config change requires rebuild).
 - APNs key uploaded to Firebase **before** testing iOS push (FCM won't deliver without it).
 - Data Safety form completed **before** Play Console submission (blocks publication if missing).
+
+Use [cross-domain checks](cross-cutting-gotchas.md) and the current store guides. Preserve the existing stack, use compatible expand/contract deployments, and verify access through reconciliation rather than two webhook types alone.

@@ -1,5 +1,5 @@
 ---
-title: supabase_flutter 2.14.2 — Flutter Supabase client
+title: "supabase_flutter 2.14.2 — Flutter Supabase client"
 impact: HIGH
 impactDescription: "Official Supabase Flutter SDK; covers init, auth state, typed queries, realtime, and storage"
 tags: flutter, supabase, dart, auth, database
@@ -7,7 +7,7 @@ tags: flutter, supabase, dart, auth, database
 
 # supabase_flutter — Flutter Supabase client
 
-**Version:** 2.14.2  
+**Historical example baseline:** 2.14.2   — resolve a compatible installed version before using these snippets.
 **Platforms:** Android, iOS, macOS, Web, Windows, Linux
 
 ```yaml
@@ -80,10 +80,10 @@ final posts = await supabase.from('posts')
 await supabase.from('profiles').insert({'id': userId, 'email': email});
 
 // Upsert
-await supabase.from('profiles').upsert({'id': userId, 'plan': 'pro'});
+await supabase.from('profiles').upsert({'id': userId, 'display_name': name});
 
 // Update
-await supabase.from('profiles').update({'plan': 'pro'}).eq('id', userId);
+await supabase.from('profiles').update({'display_name': name}).eq('id', userId);
 
 // Delete
 await supabase.from('posts').delete().eq('id', postId);
@@ -93,9 +93,9 @@ await supabase.from('posts').delete().eq('id', postId);
 .neq('column', value)
 .gt('count', 0)
 .gte('created_at', isoDate)
-.in_('status', ['active', 'pending'])
+.inFilter('status', ['active', 'pending'])
 .ilike('name', '%search%')   // case-insensitive LIKE
-.is_('deleted_at', null)
+.isFilter('deleted_at', null)
 ```
 
 ## PostgREST error handling
@@ -152,7 +152,7 @@ final signedUrl = await supabase.storage.from('private-files')
 ```dart
 final response = await supabase.functions.invoke(
   'ai-proxy',
-  body: {'prompt': 'Hello'},
+  body: {'userMessage': 'Hello'},
   headers: {'Content-Type': 'application/json'},
 );
 if (response.status != 200) throw Exception('Function error');
@@ -162,16 +162,14 @@ final result = response.data as Map<String, dynamic>;
 ## RPC (Postgres functions)
 
 ```dart
-final result = await supabase.rpc('increment_ai_usage', params: {
-  'p_user_id': userId,
-  'p_limit': 5,
-});
+// Call only application RPCs authorized for the current user.
+// increment_ai_usage is server-only; invoke the AI proxy instead.
 ```
 
 ## Gotchas
 
 - `supabase_flutter` handles token refresh and session persistence automatically via `SharedPreferences`. Don't implement your own token refresh.
-- `onAuthStateChange` fires an initial `signedIn` event if there's a persisted session — check for null session before acting on the event type.
+- `onAuthStateChange` fires an initial session event if there's a persisted session — check for null session before acting on the event type.
 - Network errors in `onAuthStateChange` appear as stream errors, not emitted events. Add `.handleError()` to the listen call.
 - `single()` throws `PostgrestException` (code `PGRST116`) if 0 or 2+ rows match. Use `maybeSingle()` if the row might not exist — returns null instead of throwing.
 - Realtime channels must be removed on widget dispose. Leaked channels consume server connections.

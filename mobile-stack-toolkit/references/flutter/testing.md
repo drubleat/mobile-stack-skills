@@ -1,5 +1,5 @@
 ---
-title: Testing: unit, widget, integration
+title: "Testing: unit, widget, integration"
 impact: MEDIUM-HIGH
 impactDescription: "Widget tests catch layout regressions cheaply; integration tests on device validate real API calls and navigation flows"
 tags: flutter, testing, unit-tests, widget-tests, integration
@@ -13,39 +13,7 @@ Flutter has a three-tier testing model: unit tests (fast, no UI), widget tests (
 
 Test pure Dart logic — repositories, providers, utilities — with no Flutter dependencies.
 
-```dart
-// test/features/auth/auth_repository_test.dart
-import 'package:flutter_test/flutter_test.dart';
-import 'package:mocktail/mocktail.dart';
-
-class MockSupabaseClient extends Mock implements SupabaseClient {}
-
-void main() {
-  group('AuthRepository', () {
-    late MockSupabaseClient mockClient;
-    late AuthRepository repo;
-
-    setUp(() {
-      mockClient = MockSupabaseClient();
-      repo = AuthRepository(mockClient);
-    });
-
-    test('signIn returns user on success', () async {
-      when(() => mockClient.auth.signInWithOtp(email: any(named: 'email')))
-          .thenAnswer((_) async {});
-
-      expect(() => repo.requestOtp('test@example.com'), returnsNormally);
-    });
-  });
-}
-```
-
-```yaml
-dev_dependencies:
-  mocktail: ^1.0.4
-```
-
-Use `mocktail` (not `mockito`) — it works without code generation.
+Test an application-owned repository boundary rather than an unstubbed nested SDK property. Await async expectations; `returnsNormally` only checks that a Future was created, not that it completed successfully. Cover success, invalid credentials, transport failure and cancellation. Use the project's existing mocking tool (mocktail and mockito are both valid choices).
 
 ## Widget tests
 
@@ -138,7 +106,7 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('Full sign-in flow', (tester) async {
-    app.main();
+    await app.main(); // assumes the application main returns Future<void>
     await tester.pumpAndSettle(const Duration(seconds: 3));
 
     // Enter email
@@ -194,7 +162,7 @@ genhtml coverage/lcov.info -o coverage/html
 ## Gotchas
 
 - Widget tests run on a simulated environment — they don't test real device behavior (native plugins, actual animations). Integration tests cover those.
-- `await tester.pumpAndSettle()` waits for all animations and futures to complete. If there's an infinite animation (like a loading spinner), it times out. Use `await tester.pump(const Duration(seconds: 2))` instead.
+- `await tester.pumpAndSettle()` pumps frames until no frame is scheduled (it does not await every arbitrary Future). If there's an infinite animation (like a loading spinner), it times out. Use `await tester.pump(const Duration(seconds: 2))` instead.
 - Riverpod's `ProviderScope` must wrap the widget in tests — same as in the real app.
 - `mocktail` uses `registerFallbackValue()` for custom types. Register them in `setUpAll`:
 

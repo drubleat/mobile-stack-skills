@@ -1,5 +1,5 @@
 ---
-title: Storage: S3-style uploads with RLS
+title: "Storage: S3-style uploads with RLS"
 impact: MEDIUM
 impactDescription: "RLS on storage buckets matches database RLS model; signed URLs prevent direct bucket exposure"
 tags: supabase, storage, uploads, rls, signed-urls

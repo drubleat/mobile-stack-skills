@@ -1,5 +1,5 @@
 ---
-title: Migration discipline — schema as code, safe changes
+title: "Migration discipline — schema as code, safe changes"
 impact: HIGH
 impactDescription: "Dashboard click-ops drift from the migration history; irreversible migrations without fallback plans cause outages"
 tags: migrations, schema, postgres, supabase-cli, ci
@@ -28,7 +28,7 @@ git commit -m "feat: add messages table"
 
 ## Safe migration patterns
 
-### Adding a nullable column (safe, no lock)
+### Adding a nullable column (usually quick; still takes a DDL lock)
 
 ```sql
 alter table messages add column read_at timestamptz;
@@ -44,9 +44,9 @@ alter table messages alter column priority set not null;
 alter table messages alter column priority set default 0;
 ```
 
-One-step `ADD COLUMN ... NOT NULL DEFAULT ...` on Postgres 11+ is safe (the default is stored in catalog, not per-row) but avoid it on huge tables to be safe.
+One-step `ADD COLUMN ... NOT NULL DEFAULT ...` on Postgres 11+ is safe (the default is stored in catalog, not per-row) for non-volatile defaults; still budget for lock acquisition. Batch backfills and check constraints on large live tables.
 
-### Renaming a column (zero-downtime)
+### Renaming a column (expand/contract sketch)
 
 ```sql
 -- Step 1 (deploy A): add new column, sync with trigger
@@ -54,7 +54,8 @@ alter table users add column full_name text;
 create trigger sync_full_name before insert or update on users
   for each row execute function sync_full_name_trigger();
 
--- Step 2 (deploy B): migrate reads to new column, remove old column
+-- Backfill and validate first; keep both columns synchronized while old clients remain.
+-- Step 2 (later deploy): migrate readers, then remove the old column only when safe
 alter table users drop column name;
 ```
 

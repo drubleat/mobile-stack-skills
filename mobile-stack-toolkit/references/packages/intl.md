@@ -1,13 +1,13 @@
 ---
-title: intl 0.20.2 — internationalization & date/number formatting
+title: "intl 0.20.2 — internationalization & date/number formatting"
 impact: LOW-MEDIUM
-impactDescription: "DateFormat, NumberFormat, and message localization; requires initializeDateFormatting() before use"
+impactDescription: "Locale-aware dates and numbers; load required date locale data and choose currency explicitly"
 tags: flutter, i18n, l10n, dates, numbers
 ---
 
 # intl — internationalization & date/number formatting
 
-**Version:** 0.20.2  
+**Historical example baseline:** 0.20.2   — resolve a compatible installed version before using these snippets.
 **Platforms:** all (Dart package, no native code)
 
 ```yaml
@@ -145,7 +145,9 @@ AppLocalizations.of(context)!.helloWorld
 
 ## Gotchas
 
-- `initializeDateFormatting(locale, null)` must be called before using `DateFormat` with that locale — otherwise you get an exception. Call it once at app start for each supported locale.
+- `en_US` date data is available by default; other locales need data initialization. The local-data initializer loads the bundled date data. Flutter localization delegates may already initialize it; verify the app startup path.
 - `Intl.defaultLocale` is global state — setting it affects all `Intl` calls in the app. For per-widget locale, use `Intl.withLocale()`.
-- The `intl` package's locale format uses underscores (`tr_TR`), but Flutter's `Locale` class uses hyphens (`tr-TR`). Convert: `locale.toLanguageTag().replaceAll('-', '_')`.
-- Currency symbols are not automatically fetched from the locale — you must provide `symbol` explicitly.
+- Use `Intl.canonicalizedLocale(locale.toLanguageTag())` when normalizing a Flutter locale for intl lookup; do not assume every formatter requires a manual hyphen replacement.
+- `NumberFormat.currency` uses the currency name when `symbol` is omitted. Set the ISO currency `name` explicitly for money amounts; use `symbol` to override display, or `simpleCurrency` when its potentially ambiguous short symbol is appropriate. Store prices should use the store-provided localized value.
+
+Reviewed 2026-10-21: [DateFormat](https://pub.dev/documentation/intl/latest/intl/DateFormat-class.html), [NumberFormat.currency](https://pub.dev/documentation/intl/latest/intl/NumberFormat/NumberFormat.currency.html).

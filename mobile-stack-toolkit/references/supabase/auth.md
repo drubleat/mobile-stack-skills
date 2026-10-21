@@ -1,5 +1,5 @@
 ---
-title: Auth: email/OTP + native Apple/Google sign-in
+title: "Auth: email/OTP + native Apple/Google sign-in"
 impact: CRITICAL
 impactDescription: "Session persistence bugs log users out silently; native sign-in misconfiguration blocks App Store approval"
 tags: supabase, auth, oauth, apple, google, session
@@ -51,32 +51,13 @@ await supabase.auth.signInWithPassword({ email, password });
 
 OTP (code or magic link) avoids password storage entirely and is the lowest-friction email option for mobile.
 
-## Native sign-in (the production path)
+## Native or browser sign-in
 
-For Apple and Google, prefer **native sign-in → `signInWithIdToken`** over the web OAuth redirect. The native flow gives the real OS sheet, no browser bounce, and works reliably in a Dev Build. (The `signInWithOAuth` + `expo-auth-session` web flow is fine for quick prototypes, but is clunkier in production.)
+Choose a documented flow supported by the target platform. Native Google/Apple token exchange and browser OAuth are both valid production approaches. Configure provider IDs, native signing/capabilities and redirect allowlists before testing.
 
-**Apple** (required on iOS if you offer any other social login — App Store guideline):
+Modern React Native Google Sign-In returns a discriminated result; check success/cancellation and a non-null `result.data.idToken` before calling Supabase `signInWithIdToken`. For Apple, follow the platform's nonce contract: fresh cryptographic raw nonce, SHA-256 hash in the Apple request where required, and raw nonce in Supabase verification. Do not assert non-null tokens after a cancelled request.
 
-```ts
-import * as AppleAuthentication from 'expo-apple-authentication';
-
-const cred = await AppleAuthentication.signInAsync({
-  requestedScopes: [AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-                    AppleAuthentication.AppleAuthenticationScope.EMAIL],
-});
-await supabase.auth.signInWithIdToken({ provider: 'apple', token: cred.identityToken! });
-```
-
-**Google** (via `@react-native-google-signin/google-signin`, needs a Dev Build):
-
-```ts
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
-GoogleSignin.configure({ webClientId: '<web-client-id>' });
-const { data } = await GoogleSignin.signIn();
-await supabase.auth.signInWithIdToken({ provider: 'google', token: data.idToken! });
-```
-
-Configure the matching provider client IDs in the Supabase dashboard (Auth → Providers). Apple requires the Sign in with Apple capability + a Services ID; Google requires the **web** client ID for token verification even on native.
+Apple login requirements have conditions/exceptions; see [store checks](../store/rejection-redflags.md). Use [Supabase native sign-in guidance](https://supabase.com/docs/guides/auth/social-login/auth-apple) and the installed provider SDK's API rather than mixing version-specific snippets.
 
 ## Reacting to auth state
 
@@ -94,6 +75,8 @@ Feed this into the root-layout auth gate → [../expo/architecture.md](../expo/a
 
 - **Session lost on restart** → missing `storage: AsyncStorage` / `persistSession`.
 - **Token silently expires** → forgot the `AppState` auto-refresh wiring above.
-- **Apple rejection** → you ship Google login but not Apple; Apple requires Sign in with Apple when other third-party logins exist → [../store/rejection-redflags.md](../store/rejection-redflags.md).
+- **Login policy mismatch** → check the applicable platform rules and exceptions → [../store/rejection-redflags.md](../store/rejection-redflags.md).
 - **Google "DEVELOPER_ERROR"** → wrong/missing SHA-1 (Android) or using the Android client ID instead of the **web** client ID for `signInWithIdToken`.
 - **Deep-link redirect not returning** (web OAuth flow) → scheme/redirect URL mismatch; another reason to prefer the native flow.
+
+Retain/remove AppState listeners and initialize refresh from the current app state. Check auth errors, handle session-restoration loading, and avoid awaiting another Supabase auth operation inside the auth-state callback. Never treat a client session object as server verification.

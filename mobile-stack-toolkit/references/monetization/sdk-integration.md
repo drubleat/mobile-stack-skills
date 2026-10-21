@@ -1,5 +1,5 @@
 ---
-title: RevenueCat SDK integration (react-native-purchases v10)
+title: "RevenueCat SDK integration (react-native-purchases v10)"
 impact: CRITICAL
 impactDescription: "Purchases.logIn(userId) MUST be called before any purchase; skipping this loses attribution and webhook correlation"
 tags: revenuecat, sdk, iap, purchases, react-native
@@ -19,7 +19,7 @@ Both packages require native code → Dev Build required. Add to `app.config.ts`
 
 ```ts
 // lib/revenuecat.ts
-import Purchases, { LOG_LEVEL, PurchasesConfiguration } from 'react-native-purchases';
+import Purchases, { LOG_LEVEL } from 'react-native-purchases';
 import { Platform } from 'react-native';
 
 const API_KEYS = {
@@ -32,11 +32,7 @@ export function configureRevenueCat(userId?: string) {
 
   Purchases.setLogLevel(LOG_LEVEL.DEBUG);   // remove in production or set to ERROR
 
-  const config = PurchasesConfiguration.builder(apiKey)
-    .setAppUserID(userId ?? null)           // null = RC generates anonymous ID
-    .build();
-
-  Purchases.configure(config);
+  Purchases.configure({ apiKey, ...(userId ? { appUserID: userId } : {}) });
 }
 ```
 
@@ -46,16 +42,16 @@ Call `configureRevenueCat()` early in your app lifecycle — before any purchase
 
 ```ts
 // After the user signs in (Supabase, Firebase, or any auth)
-const { data: { user } } = await supabase.auth.getSession();
-if (user) {
-  await Purchases.logIn(user.id);   // aligns RC identity with your backend
+const { data: { session } } = await supabase.auth.getSession();
+if (session) {
+  await Purchases.logIn(session.user.id);   // aligns RC identity with your backend
 }
 
 // On sign out
 await Purchases.logOut();           // RC resets to anonymous ID
 ```
 
-`logIn` is the critical call. Without it, RC uses an anonymous ID that can't be matched to your user records when the webhook fires. With it, `webhook.app_user_id === supabase_user.id` — trivial upsert.
+`logIn` is the critical call. Without it, RC uses an anonymous ID that can't be matched to your user records when the webhook fires. RevenueCat can also send aliases, anonymous IDs, and transfers; resolve those identities before writing a UUID-keyed projection.
 
 ## Fetch the current offering
 
@@ -115,4 +111,4 @@ StoreProduct        // title, description, priceString, currencyCode, price
 - **Not calling `logIn` after auth** → RC creates a separate anonymous profile; webhook can't match users.
 - **Checking `customerInfo.activeSubscriptions` instead of `entitlements.active`** → product-level check breaks if you rename products or add trial periods. Always use entitlements.
 - **Not handling `userCancelled`** → showing "Purchase failed" when the user just tapped Cancel is a common bad UX.
-- **Calling `configure` multiple times** → once per app launch only; subsequent calls are no-ops but messy.
+- **Calling `configure` multiple times** → once per app launch only; use `logIn`/`logOut` for identity changes.

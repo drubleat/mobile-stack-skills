@@ -1,93 +1,30 @@
 ---
-title: Secrets management & release checklist
-impact: CRITICAL
-impactDescription: "Secrets in env vars not source code; release checklist prevents submitting with debug keys or missing privacy strings"
-tags: cicd, secrets, release, security, checklist
+title: "Release credentials and environment boundaries"
+impact: HIGH
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# Secrets management & release checklist
+# Release credentials and environment boundaries
 
-## Where to store secrets
+Classify values by where they are used, not by the variable's name:
 
-Two systems, different scopes:
+| Value | Intended location |
+|---|---|
+| Supabase URL/publishable key, RevenueCat platform public SDK key | Client-readable app configuration |
+| AI provider key, RevenueCat secret REST key, Supabase secret/service-role key | Trusted backend secret store |
+| Store signing/API credentials, Expo token, deployment token, DB password | Scoped protected CI/build/submit environment |
 
-| Secret type | Store in | Accessed by |
-|---|---|---|
-| AI API keys (OpenAI, Gemini) | Supabase Edge Function secrets | Edge Function at runtime |
-| RevenueCat API key | EAS Secrets (build-time) | app bundle via `EXPO_PUBLIC_RC_*` |
-| Supabase URL + publishable key | EAS Secrets | app bundle via `EXPO_PUBLIC_SUPABASE_*` |
-| App Store Connect API key | EAS Secrets or GitHub Secrets | EAS Submit / GitHub Actions |
-| Supabase service role key | GitHub Secrets only | CI migration jobs (never in app) |
-| Database password | GitHub Secrets only | CI `supabase db push` |
-| EXPO_TOKEN | GitHub Secrets | GitHub Actions to trigger EAS |
+Anything embedded in JavaScript, native resources or app config is readable from the installed binary. EAS secret visibility protects handling on the build service; it cannot make bundled data secret. Non-EXPO_PUBLIC values can also leak if a config plugin writes them into the app.
 
-**Rule**: secrets that end up in the app bundle are always `EXPO_PUBLIC_*`. Secrets that must not be in the bundle live in EAS Secrets (build-time env only) or GitHub Secrets (CI only).
+Use current EAS environment-variable commands (`eas env:create`, `eas env:list`) with the selected environment and documented visibility. Keep public configuration distinct from backend credentials. Do not copy legacy `eas secret:create --env` commands. Pass secrets through environment bindings or protected files, never source-controlled command arguments or logs.
 
-## EAS Secrets
+Before release: verify the exact commit/build, lockfiles, version counters, runtime policy, signing, backend environment and compatible migrations. Run relevant checks, test RLS with real roles and validate restore/purchase/account-deletion flows. Local `db reset` is for a disposable local database; it is not a generic staging validation command.
 
-```bash
-# Set per-project secrets (available in all builds for this project)
-eas secret:create --scope project --name EXPO_PUBLIC_SUPABASE_URL --value "https://xxx.supabase.co"
-eas secret:create --scope project --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "sb_publishable_..."
+Submit the exact build ID, confirm processing and reviewer access, then follow the platform's rollout controls. Processing/review times are not guaranteed. Monitor crashes, auth failures, entitlement freshness and backend errors after release.
 
-# Set per-environment (only available in specific build profiles)
-eas secret:create --scope project --name REVENUE_CAT_IOS_KEY --value "appl_..." --env production
+For rotation, create a replacement, update the actual consuming environment, verify use, then revoke the old credential. Do not spread backend keys into EAS merely to keep copies synchronized. Confirm whether the runtime requires restart/redeployment for the particular secret mechanism.
 
-# List all project secrets
-eas secret:list
+## Sources
 
-# Delete a secret
-eas secret:delete --name OLD_SECRET_NAME
-```
-
-EAS Secrets are injected as environment variables at build time. `EXPO_PUBLIC_*` ones are baked into the JS bundle (accessible at runtime). Non-`EXPO_PUBLIC_` ones are only accessible during the build process (for config plugins, native code generation).
-
-## GitHub Secrets
-
-GitHub → repo → Settings → Secrets and variables → Actions.
-
-Use GitHub Secrets for values that CI jobs need but that must never reach the app:
-- `SUPABASE_ACCESS_TOKEN` (to run `supabase` CLI commands)
-- `SUPABASE_DB_PASSWORD` (for `supabase db push`)
-- `EXPO_TOKEN` (to authenticate EAS CLI)
-
-Never put service role keys or DB passwords in EAS Secrets — they'd be accessible in build logs.
-
-## Manual release checklist
-
-Before triggering a production build/submit:
-
-### Code
-- [ ] All feature branches merged and PRs closed.
-- [ ] Version in `app.config.ts` bumped (semver: `1.2.0` → `1.3.0` for features, `1.2.0` → `1.2.1` for fixes).
-- [ ] `CHANGELOG` or release notes drafted (you'll paste this into App Store Connect and Play Console).
-- [ ] TypeScript passes: `npx tsc --noEmit`.
-
-### Supabase
-- [ ] All new migrations committed and reviewed.
-- [ ] Migrations tested on a staging project (`supabase db reset` + `db push` to staging project ref).
-- [ ] New Edge Functions deployed to staging and smoke-tested.
-- [ ] RLS policies reviewed for any new tables.
-
-### Store assets
-- [ ] Screenshots updated if UI changed (especially first screenshot).
-- [ ] App description updated if major feature added.
-- [ ] What's New text (iOS) written (up to 4000 chars, shown under app listing during update period).
-
-### Pre-build sanity
-- [ ] Build runs locally in production profile: `eas build --profile production --platform ios --local` (optional but catches config issues fast).
-- [ ] `eas.json` has the correct build profile settings.
-
-### Post-submit
-- [ ] Monitor TestFlight processing (5–15 min for iOS).
-- [ ] Promote Internal → Closed/External on TestFlight; share with QA testers.
-- [ ] Monitor Play Console's Pre-launch report for Android.
-- [ ] After approval: roll out at 10–20% (Play) and monitor crash rate before full rollout.
-
-## Rotating secrets
-
-When rotating an API key (e.g. OpenAI key regenerated):
-1. Create the new secret in Supabase with the new value: `supabase secrets set OPENAI_API_KEY=sk-new...`
-2. Deploy Edge Functions to pick up the new secret: `supabase functions deploy`.
-3. Verify the old key is revoked in the provider dashboard.
-4. Update the corresponding EAS Secret if it was also stored there: `eas secret:create --name OPENAI_API_KEY --value sk-new...` (this overwrites).
+Reviewed 2026-10-20: [EAS environment variables](https://docs.expo.dev/eas/environment-variables/), [Supabase secrets](https://supabase.com/docs/guides/functions/secrets).

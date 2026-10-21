@@ -1,5 +1,5 @@
 ---
-title: Firebase — domain index
+title: "Firebase — domain index"
 impact: MEDIUM-HIGH
 impactDescription: "Routes to setup, FCM, Crashlytics, Auth, Firestore, Analytics, Storage, App Distribution, and hybrid patterns"
 tags: firebase, index
@@ -11,26 +11,7 @@ Firebase provides a suite of services that complement (or replace) Supabase depe
 - **Firebase-standalone**: no Supabase, using Firebase Auth + Firestore + FCM as the full backend.
 - **Supabase + Firebase hybrid**: Supabase for auth/database/edge functions, Firebase added for Crashlytics, Analytics, FCM, or Remote Config.
 
-## When to use which
-
-| Need | Firebase-standalone | Hybrid (Supabase + Firebase) |
-|---|---|---|
-| Database | Firestore | Supabase (Postgres) |
-| Auth | Firebase Auth | Supabase Auth |
-| Push notifications | FCM | FCM (Firebase excels here) |
-| Crash reporting | Crashlytics | Crashlytics |
-| Analytics | Firebase Analytics | Firebase Analytics |
-| Feature flags | Remote Config | Remote Config or custom |
-| AI / Gemini calls | Firebase AI Logic + App Check | Supabase Edge proxy |
-| File storage | Firebase Storage | Supabase Storage |
-
-**Verdict**: Supabase + Firebase hybrid is the most common production pattern — Supabase handles structured data + auth + payments orchestration, Firebase handles observability (Crashlytics, Analytics) and push (FCM). Firebase AI Logic is a legitimate alternative to Supabase Edge proxy for Gemini when you're Firebase-native.
-
-## Non-negotiables
-
-1. `google-services.json` (Android) and `GoogleService-Info.plist` (iOS) must be in the project root and referenced in `app.config.ts` config plugins.
-2. `@react-native-firebase/messaging` requires `useFrameworks: 'static'` in `expo-build-properties` on iOS — without it, pods fail to link.
-3. Always call `firebase.initializeApp()` (or FlutterFire's `Firebase.initializeApp()`) before any Firebase SDK call.
+Preserve the app's existing services. Native RN Firebase initializes its default app from platform config; Flutter initializes Firebase explicitly. File placement and plugins depend on the native/CNG workflow. Use the setup reference before adding services. App Check complements authentication and authorization; it does not replace them.
 
 ## Files in this domain
 

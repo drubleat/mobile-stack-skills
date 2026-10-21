@@ -1,5 +1,5 @@
 ---
-title: Schema conventions — naming, types, defaults, soft delete
+title: "Schema conventions — naming, types, defaults, soft delete"
 impact: HIGH
 impactDescription: "Consistent schema conventions make RLS policies simpler, PostgREST queries predictable, and migrations less risky"
 tags: schema, postgres, conventions, migrations, types
@@ -14,8 +14,8 @@ create table public.items (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users(id) on delete cascade,
   created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now(),
-  -- your columns here
+  updated_at  timestamptz not null default now()
+  -- Add a comma before further columns.
 );
 ```
 

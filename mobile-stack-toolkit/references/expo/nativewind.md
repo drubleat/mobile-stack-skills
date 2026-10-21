@@ -1,5 +1,5 @@
 ---
-title: NativeWind v4 — Tailwind CSS for React Native
+title: "NativeWind v4 — Tailwind CSS for React Native"
 impact: MEDIUM
 impactDescription: "NativeWind lets you use Tailwind utility classes in React Native; wrong metro/babel config silently breaks className support"
 tags: nativewind, tailwind, styling, expo, react-native, ui
@@ -16,7 +16,8 @@ NativeWind v4 is a Tailwind CSS implementation for React Native. It uses the Tai
 ## Install
 
 ```bash
-npm install nativewind react-native-reanimated react-native-safe-area-context
+npm install nativewind@^4
+npx expo install react-native-reanimated react-native-safe-area-context
 npm install --save-dev tailwindcss@^3.4.17 prettier-plugin-tailwindcss@^0.5.11 babel-preset-expo
 ```
 
@@ -56,8 +57,8 @@ module.exports = function (api) {
   return {
     presets: [
       ['babel-preset-expo', { jsxImportSource: 'nativewind' }],
+      'nativewind/babel',
     ],
-    plugins: ['nativewind/babel'],
   };
 };
 ```
@@ -180,9 +181,9 @@ Then use as `bg-brand`, `font-bold`, etc.
 
 ## Gotchas
 
-- **`className` not working?** Check that `nativewind/babel` is in `plugins` AND `jsxImportSource: 'nativewind'` is in the babel preset options. Both are required.
+- **`className` not working?** Check that `nativewind/babel` is in `presets` AND `jsxImportSource: 'nativewind'` is in the babel preset options. Both are required.
 - **Clear Metro cache** after any config change: `npx expo start --clear`.
 - **Tailwind v4 is NOT supported** — NativeWind v4 requires Tailwind v3 (`^3.4.17`). Don't upgrade to Tailwind v4 until NativeWind explicitly supports it.
-- **Web support** requires `react-dom` and `@expo/webpack-config` or the Expo web metro config. The className prop works natively on web targets.
+- **Web support** requires SDK-compatible `react-dom` and `react-native-web`, using Expo Metro. The className prop works natively on web targets.
 - **`prettier-plugin-tailwindcss`** sorts class names automatically in your editor — not required at runtime, but recommended for team consistency.
 - `react-native-reanimated` must be installed because NativeWind's animation utilities depend on it, even if you don't use animations directly.

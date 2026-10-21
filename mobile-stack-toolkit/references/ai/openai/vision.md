@@ -1,5 +1,5 @@
 ---
-title: OpenAI vision — image understanding
+title: "OpenAI vision — image understanding"
 impact: MEDIUM-HIGH
 impactDescription: "All GPT-5.x models support vision natively; correct base64 encoding prevents silent failures on mobile uploads"
 tags: openai, vision, multimodal, images

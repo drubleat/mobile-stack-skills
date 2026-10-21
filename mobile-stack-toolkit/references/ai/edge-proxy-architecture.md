@@ -1,15 +1,15 @@
 ---
-title: Edge Function proxy — why and how
+title: "Edge Function proxy — why and how"
 impact: CRITICAL
-impactDescription: "Calling AI APIs directly from the client exposes secret keys; this pattern is non-negotiable for production"
+impactDescription: "Keep long-lived provider secrets server-side; authorize and bound paid operations"
 tags: ai, security, edge-functions, openai, gemini, proxy
 ---
 
 # Edge Function proxy — why and how
 
-## The rule: no AI API call ever leaves directly from the mobile client
+## Keep long-lived provider secrets on the server
 
-This is non-negotiable. Every call to OpenAI, Gemini, or any model API goes through a **Supabase Edge Function** that you own. The mobile app calls your function; your function calls the model.
+Use the project's existing trusted backend. Supabase Edge Functions are the examples here, not a required provider migration. Firebase AI Logic with enforced App Check and short-lived scoped Realtime credentials can support direct client connections without embedding provider secrets.
 
 ## Why
 
@@ -19,7 +19,7 @@ This is non-negotiable. Every call to OpenAI, Gemini, or any model API goes thro
 
 **Cost control.** Log every request's token count. Set hard limits. Kill a runaway feature from the server without a store release.
 
-**Prompt control.** The system prompt is server-side code, not a string in the app. Users can't inspect or override it.
+**Prompt control.** The system prompt is server-side code, not a string in the app. Do not treat prompt secrecy as a security boundary; enforce authorization in code.
 
 **Provider flexibility.** The mobile app calls `POST /functions/v1/ai-proxy`. If you swap GPT for Gemini next month, you change one Edge Function — every app version, everywhere, immediately.
 
@@ -37,7 +37,9 @@ Mobile app  →  POST /functions/v1/ai-proxy  →  Supabase Edge Function
                                               ← response (or stream)
 ```
 
-## Minimal Edge Function skeleton
+## Integration sketch (not a complete request handler)
+
+Add method/content-type checks, bounded body validation before quota reservation, timeouts, provider failure/refusal handling and redacted logging. The snippet omits those HTTP concerns; see [guardrails](guardrails.md).
 
 ```ts
 // supabase/functions/ai-proxy/index.ts
@@ -59,16 +61,24 @@ Deno.serve(async (req) => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new Response('Unauthorized', { status: 401, headers: cors });
 
-  // 2. Quota check (see guardrails.md)
-  const overLimit = await checkAndIncrementQuota(supabase, user.id);
-  if (overLimit) return new Response('Rate limit exceeded', { status: 429, headers: cors });
+  // 2. Server-only client; apply assets/sql/ai-quota.sql first.
+  const adminClient = createClient(Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data: quota, error: quotaError } = await adminClient.rpc('increment_ai_usage', {
+    p_user_id: user.id, p_limit: 10, // trusted server policy; never from request JSON
+  });
+  if (quotaError || typeof quota?.over_limit !== 'boolean')
+    return new Response('Quota unavailable', { status: 503, headers: cors });
+  if (quota.over_limit) return new Response('Rate limit exceeded', { status: 429, headers: cors });
 
   // 3. Call model
   const { userMessage } = await req.json();
   const response = await openai.responses.create({
-    model: 'gpt-5.4-mini',
+    model: Deno.env.get('OPENAI_TEXT_MODEL')!,
     instructions: 'You are a helpful assistant.',
     input: userMessage,
+    max_output_tokens: 1024,
   });
 
   return new Response(JSON.stringify({ text: response.output_text }), {
@@ -83,10 +93,11 @@ Deno.serve(async (req) => {
 // lib/ai.ts
 export async function askAI(message: string): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Sign in required');
   const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-proxy`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${session!.access_token}`,
+      Authorization: `Bearer ${session.access_token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ userMessage: message }),
@@ -101,4 +112,4 @@ The client has no idea which model is behind it, what the system prompt is, or w
 
 ## When you don't use Supabase
 
-If your backend is Firebase / custom server / another BaaS: same pattern, different host. The proxy can be a Firebase Cloud Function, a Next.js API route, a Cloudflare Worker — anything server-side where you control secrets. The mobile client still only talks to your own endpoint, never directly to OpenAI/Gemini. The Supabase examples in [supabase/edge-functions.md](../supabase/edge-functions.md) apply 1:1.
+If your backend is Firebase / custom server / another BaaS: same pattern, different host. The proxy can be a Firebase Cloud Function, a Next.js API route, a Cloudflare Worker — anything server-side where you control secrets. For direct client connections, use only a documented managed/ephemeral credential flow. The Supabase examples in [supabase/edge-functions.md](../supabase/edge-functions.md) illustrate the same trust boundary; adapt runtime and credential handling.

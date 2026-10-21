@@ -1,83 +1,22 @@
 ---
-title: Play Console: setup, Data Safety, release tracks
+title: "Google Play submission and target requirements"
 impact: HIGH
-impactDescription: "Data Safety section is required before any production release; missing declarations cause policy violations"
-tags: store, play-store, android, data-safety, release
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# Play Console: setup, Data Safety, release tracks
+# Google Play submission and target requirements
 
-## Initial setup
+Select the existing developer account and immutable package identity. Verify account verification, signing and the current target-API requirement for the app category and release date. The official policy reviewed for this audit requires API 36 for standard new apps/updates from August 31, 2026; category exceptions and extensions must be checked in Play Console before release.
 
-1. **Developer account**: one-time $25 fee. Use a Google account dedicated to the app/studio (not your personal account).
-2. **Create app**: Play Console → All apps → Create app. Set default language, app or game, free or paid.
-3. **Bundle ID (package name)**: set in `app.config.ts` as `android.package`. Must be globally unique (reverse-domain format: `com.yourcompany.appname`). **Cannot be changed after first release.**
+For Expo, use the SDK's supported Android defaults. If an override is required, configure `expo-build-properties` with `android.targetSdkVersion`/`compileSdkVersion` under that plugin, not arbitrary top-level android app-config fields. For Flutter, update the supported Gradle/toolchain configuration. Test behavior changes introduced by the target upgrade.
 
-## Target API level (2026 requirement)
+New personal developer accounts subject to Google's testing gate need at least 12 opted-in closed testers for 14 continuous days before applying for production access. Internal testing alone does not satisfy that requirement. Check the account's actual eligibility and requested evidence.
 
-Google requires new apps to target **API level 35** (Android 15) as of 2026. Updates to existing apps must also meet this target.
+Complete Data Safety, privacy policy, content rating, ads/target-audience declarations and account deletion requirements based on actual app and SDK behavior. SDK documentation is input, not a form to copy blindly. Apps supporting account creation need the applicable in-app and web deletion paths.
 
-```ts
-// app.config.ts
-android: {
-  targetSdkVersion: 35,
-  compileSdkVersion: 35,
-  minSdkVersion: 24,         // covers ~99%+ of active devices
-}
-```
+Build the correctly signed AAB, test through the intended track, and explicitly submit that artifact. EAS Build alone does not automatically submit unless auto-submit is configured. Verify release status and availability; review timing is external. Use staged rollout where supported and monitor Android vitals and backend compatibility.
 
-EAS Build picks these up from `app.config.ts` and sets them in the Gradle files during prebuild.
+## Sources
 
-## Data Safety form (mandatory)
-
-Every app must complete the Data Safety section before publishing. This is the biggest source of "stuck in review" issues for first-time publishers.
-
-Navigate to: Play Console → [App] → Policy → App content → Data safety.
-
-Answer based on what your app and its SDKs actually do:
-
-| Category | Collected if... |
-|---|---|
-| Name, email | You have user accounts / sign-up |
-| Device or other IDs | You use Firebase, analytics SDKs |
-| App interactions | Firebase Analytics, Crashlytics |
-| Crash logs | Firebase Crashlytics |
-| Financial info | RevenueCat / in-app purchases |
-| Audio | You record voice / use STT |
-| Photos / videos | You allow image upload |
-
-**Firebase SDKs collect data even if you don't explicitly call collection methods.** Crashlytics collects crash data; Analytics collects device info and interaction data. Include these.
-
-RevenueCat's privacy documentation lists exactly what it collects — copy it into the form.
-
-## Release tracks
-
-| Track | Audience | Review |
-|---|---|---|
-| **Internal testing** | Up to 100 Google accounts you specify | No review, available in minutes |
-| **Closed testing (Alpha)** | Specific testers or groups | Brief review (~hours) |
-| **Open testing (Beta)** | Anyone who opts in | Brief review |
-| **Production** | Everyone | Full review (1–3 days typically) |
-
-Workflow: Internal → Production (or Internal → Closed → Production for more validation). Always test on the Internal track before hitting Production.
-
-## Staged rollout
-
-Play Console lets you roll out a Production release to a percentage of users:
-
-```
-Production → 1% → 5% → 20% → 100%
-```
-
-Monitor crash rate and ANR rate (Play Console → Android vitals) at each stage. If crash rate spikes, halt the rollout before it reaches all users.
-
-## Android App Bundle (AAB)
-
-EAS Build produces a `.aab` (Android App Bundle) for production — not an APK. Play Console requires `.aab` for new apps. EAS Submit handles the upload automatically.
-
-## Common Play Console mistakes
-
-- **Data Safety form incomplete or inaccurate** → app rejected or removed. Fill it out carefully; Google cross-checks SDK libraries.
-- **Package name changed** → you can't update an existing app with a different package name; you'd have to publish as a new app, losing all reviews.
-- **Target API not updated** → Play blocks updates if you fall behind the required target SDK.
-- **Signing key lost** → the Play App Signing service (enabled by default for new apps) holds the signing key on Google's side — you only upload the upload key. Use this; don't manage signing keys yourself.
+Reviewed 2026-10-20: [target API policy](https://support.google.com/googleplay/android-developer/answer/11926878), [personal account testing](https://support.google.com/googleplay/android-developer/answer/14151465), [account deletion](https://support.google.com/googleplay/android-developer/answer/13327111).

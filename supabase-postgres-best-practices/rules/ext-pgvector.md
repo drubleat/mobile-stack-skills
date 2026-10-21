@@ -1,169 +1,39 @@
 ---
-title: pgvector — vector similarity search for AI features
+title: "pgvector search, dimensions and RLS"
 impact: HIGH
-impactDescription: "pgvector enables semantic search, RAG, and recommendation features without a separate vector database; correct index type (hnsw vs ivfflat) is 10x throughput difference"
-tags: pgvector, ai, embeddings, vector-search, postgres, extensions
+impactDescription: "Align embedding dimensions, index operators and tenant authorization"
+tags: postgres, pgvector, rag, security
 ---
 
-# pgvector: vector similarity search
+# pgvector search, dimensions and RLS
 
-## Enable the extension
+Enable the extension in the intended database; do not assume every project already has it. Choose a supported embedding model and track model/version/dimension with stored data. Changing the model may require re-embedding rather than just changing a model string.
 
-```sql
-create extension if not exists vector;
-```
+Standard vector indexes support different dimension limits from halfvec indexes (commonly 2000 and 4000 respectively); verify the installed extension. Match the operator class to the distance metric. `<#>` returns negative inner product, so ordering semantics differ from a raw positive similarity value.
 
-Supabase enables pgvector by default on all projects.
+## Owned document search
 
-## Schema: store embeddings alongside your data
+This fragment assumes public.documents has id, user_id, content and a vector(1536) embedding, with RLS and suitable grants. Place the vector extension in the schema expected by the migration and qualify extension types/operators if using a different search_path.
 
 ```sql
-create table documents (
-  id          uuid primary key default gen_random_uuid(),
-  user_id     uuid not null references auth.users(id) on delete cascade,
-  content     text not null,
-  embedding   vector(1536),  -- OpenAI text-embedding-3-small dimension
-  created_at  timestamptz not null default now()
-);
-
--- RLS
-alter table documents enable row level security;
-create policy "users see own documents" on documents
-  for select using (user_id = (select auth.uid()));
-create policy "users insert own documents" on documents
-  for insert with check (user_id = (select auth.uid()));
-```
-
-## Embedding dimensions by model
-
-| Model | Dimension |
-|---|---|
-| OpenAI text-embedding-3-small | 1536 |
-| OpenAI text-embedding-3-large | 3072 |
-| OpenAI text-embedding-ada-002 (legacy) | 1536 |
-| Gemini text-embedding-004 | 768 |
-| Gemini text-multilingual-embedding-002 | 768 |
-
-## Generate and store embeddings (Edge Function)
-
-```ts
-// Supabase Edge Function
-import OpenAI from 'npm:openai@4';
-
-const openai = new OpenAI({ apiKey: Deno.env.get('OPENAI_API_KEY') });
-
-export async function embedText(text: string): Promise<number[]> {
-  const res = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
-    input: text,
-  });
-  return res.data[0].embedding;
-}
-
-// Store
-const embedding = await embedText(document.content);
-await adminClient.from('documents').insert({
-  user_id: userId,
-  content: document.content,
-  embedding: JSON.stringify(embedding), // pgvector accepts JSON array string
-});
-```
-
-## Similarity search: three distance operators
-
-```sql
--- Cosine distance (best for text embeddings — magnitude-independent)
-embedding <=> '[0.1, 0.2, ...]'::vector
-
--- L2 (Euclidean) distance
-embedding <-> '[0.1, 0.2, ...]'::vector
-
--- Inner product (for normalized embeddings = same as cosine)
-embedding <#> '[0.1, 0.2, ...]'::vector
-```
-
-## Search via RPC (respects RLS)
-
-```sql
-create or replace function search_documents(
-  query_embedding vector(1536),
-  match_threshold float,
-  match_count int,
-  p_user_id uuid
-)
-returns table (id uuid, content text, similarity float)
-language sql stable as $$
-  select d.id, d.content,
-         1 - (d.embedding <=> query_embedding) as similarity
-  from documents d
-  where d.user_id = p_user_id
-    and 1 - (d.embedding <=> query_embedding) > match_threshold
+create or replace function public.search_documents(
+  query_embedding vector(1536), match_count integer default 10
+) returns table(id uuid, content text, distance double precision)
+language sql stable security invoker as $$
+  select d.id, d.content, d.embedding <=> query_embedding
+  from public.documents d
+  where d.user_id = (select auth.uid())
   order by d.embedding <=> query_embedding
-  limit match_count;
+  limit least(greatest(coalesce(match_count, 10), 1), 50);
 $$;
+revoke all on function public.search_documents(vector, integer) from public, anon;
+grant execute on function public.search_documents(vector, integer) to authenticated;
 ```
 
-```ts
-const { data } = await supabase.rpc('search_documents', {
-  query_embedding: embedding,
-  match_threshold: 0.78,
-  match_count: 10,
-  p_user_id: userId,
-});
-```
+Authenticate and reserve quota before billable embedding generation. Validate content, returned dimensions and insert errors; derive user_id from verified identity. A service-role caller bypasses RLS, so authorization must still be explicit there.
 
-## Indexes: HNSW vs IVFFlat
+Compare HNSW/IVFFlat using recall, latency, build time and memory on representative filtered queries. There is no universal one-million-row cutoff or 10x guarantee. Inspect plans, and account for approximate indexes returning too few rows under selective tenant filters.
 
-| | HNSW | IVFFlat |
-|---|---|---|
-| Query speed | Faster | Slower |
-| Build speed | Slower | Faster |
-| Memory | More | Less |
-| Accuracy | Higher | Lower |
-| **Use when** | Production, < 1M rows | > 1M rows or RAM constrained |
+For hybrid retrieval, explicitly ORDER BY the relevant score before each candidate LIMIT, rank those candidates, merge by document ID and order the final score with a stable tie-breaker. Window ranking alone does not guarantee the row order consumed by LIMIT. Apply the same tenant visibility to both keyword and vector candidate sets.
 
-```sql
--- HNSW (recommended for most Supabase projects)
-create index on documents using hnsw (embedding vector_cosine_ops)
-  with (m = 16, ef_construction = 64);
-
--- IVFFlat (for large datasets)
--- Must have data before building; lists ≈ sqrt(row_count)
-create index on documents using ivfflat (embedding vector_cosine_ops)
-  with (lists = 100);
-```
-
-## Hybrid search (vector + keyword)
-
-```sql
--- Combine vector similarity with full-text search using RRF
-create or replace function hybrid_search(
-  query_text text,
-  query_embedding vector(1536),
-  match_count int
-)
-returns table (id uuid, content text, score float)
-language sql stable as $$
-  with vector_results as (
-    select id, content,
-           row_number() over (order by embedding <=> query_embedding) as rank
-    from documents
-    limit match_count * 2
-  ),
-  text_results as (
-    select id, content,
-           row_number() over (order by ts_rank(to_tsvector('english', content),
-                                               plainto_tsquery('english', query_text)) desc) as rank
-    from documents
-    where to_tsvector('english', content) @@ plainto_tsquery('english', query_text)
-    limit match_count * 2
-  )
-  select coalesce(v.id, t.id) as id,
-         coalesce(v.content, t.content) as content,
-         (coalesce(1.0 / (60 + v.rank), 0) + coalesce(1.0 / (60 + t.rank), 0)) as score
-  from vector_results v
-  full outer join text_results t using (id)
-  order by score desc
-  limit match_count;
-$$;
-```
+Reviewed 2026-10-21: [pgvector](https://github.com/pgvector/pgvector), [Supabase vector](https://supabase.com/docs/guides/database/extensions/pgvector).

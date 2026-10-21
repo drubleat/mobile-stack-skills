@@ -1,13 +1,13 @@
 ---
-title: speech_to_text 7.4.0 — on-device speech recognition
+title: "speech_to_text 7.4.0 — platform speech recognition"
 impact: MEDIUM
-impactDescription: "On-device STT; microphone permission required on both platforms; locale handling for multilingual apps"
+impactDescription: "Platform STT; microphone permission required on both platforms; locale handling for multilingual apps"
 tags: flutter, speech, stt, microphone, ai
 ---
 
-# speech_to_text — on-device speech recognition
+# speech_to_text — platform speech recognition
 
-**Version:** 7.4.0  
+**Historical example baseline:** 7.4.0   — resolve a compatible installed version before using these snippets.
 **Platforms:** Android, iOS, macOS, Web, Windows
 
 ```yaml
@@ -74,7 +74,7 @@ await _speech.listen(
   onSoundLevelChange: (level) => setState(() => _soundLevel = level),
 );
 
-// Stop gracefully (returns final result)
+// Stop gracefully (results arrive through onResult)
 await _speech.stop();
 
 // Cancel immediately (no final result)
@@ -96,7 +96,7 @@ final locales = await _speech.locales();
 for (final locale in locales) {
   print('${locale.localeId} — ${locale.name}');
 }
-// 'tr-TR' — Turkish available on Android and iOS
+// Use a localeId returned by the installed recognizer; availability varies.
 ```
 
 ## Riverpod integration
@@ -133,9 +133,10 @@ class SpeechState extends _$SpeechState {
 
 ```dart
 // Common pattern: STT → Edge Function AI → response
-final result = await ref.read(speechStateProvider.notifier).stopAndGetText();
+await ref.read(speechStateProvider.notifier).stop();
+final result = ref.read(speechStateProvider).text;
 if (result.isNotEmpty) {
-  final aiResponse = await supabase.functions.invoke('ai-proxy', body: {'prompt': result});
+  final aiResponse = await supabase.functions.invoke('ai-proxy', body: {'userMessage': result});
   // Display response
 }
 ```
@@ -145,7 +146,7 @@ See [../flutter/ai-integration.md](../flutter/ai-integration.md) for the Edge Fu
 ## Gotchas
 
 - `initialize()` must be called before every `listen()` session after a cold start. Safe to call once in `initState`.
-- **Android ignores `pauseFor`** — auto-stop timing on Android is system-controlled.
+- Listening and silence durations are upper bounds; the OS may end recognition earlier.
 - Partial results (`partialResults: true`) deliver words as they're recognized — the final `result.finalResult == true` event gives the complete transcription.
 - On iOS, speech recognition is done server-side by Apple; requires internet. On Android, it can be on-device (Pixel devices) or server-side depending on the device.
-- `localeId` format: BCP-47 (`'tr-TR'`, `'en-US'`, `'de-DE'`).
+- Use the exact locale identifier returned by `locales()`. On-device availability depends on platform, language and installed models; do not promise offline recognition. Cancel listening and ignore late results on disposal.

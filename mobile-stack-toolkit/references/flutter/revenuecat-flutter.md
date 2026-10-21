@@ -1,5 +1,5 @@
 ---
-title: RevenueCat Flutter: purchases_flutter 10.x
+title: "RevenueCat Flutter: purchases_flutter 10.x"
 impact: HIGH
 impactDescription: "Same logIn requirement as RN SDK: call before purchase or lose attribution; entitlement check pattern is identical"
 tags: flutter, revenuecat, iap, subscriptions, purchases
@@ -30,7 +30,9 @@ Call after Supabase initializes so you have the user ID available. If the user i
 
 ```dart
 // After sign-in
-final session = await supabase.auth.signIn(...);
+final result = await supabase.auth.signInWithPassword(email: email, password: password);
+final session = result.session;
+if (session == null) throw StateError('Sign-in did not return a session');
 await Purchases.logIn(session.user.id);
 ```
 
@@ -63,7 +65,7 @@ for (final package in packages) {
 ```dart
 Future<bool> purchase(Package package) async {
   try {
-    final result = await Purchases.purchasePackage(package);
+    final result = await Purchases.purchase(PurchaseParams.package(package));
     final entitlements = result.customerInfo.entitlements.active;
     return entitlements.containsKey('pro');
   } on PlatformException catch (e) {
@@ -89,10 +91,11 @@ Future<bool> hasPro() async {
 
 ```dart
 // In a Riverpod notifier or StatefulWidget
-Purchases.addCustomerInfoUpdateListener((info) {
+void listener(CustomerInfo info) {
   final isPro = info.entitlements.active.containsKey('pro');
   ref.read(subscriptionStateProvider.notifier).update(isPro);
-});
+}
+Purchases.addCustomerInfoUpdateListener(listener);
 
 // Clean up
 @override
@@ -144,7 +147,7 @@ import 'package:purchases_ui_flutter/purchases_ui_flutter.dart';
 // Present a remote paywall
 await RevenueCatUI.presentPaywall();
 
-// Or embed in a widget
+// Or present only when needed (this returns a Future, not a widget)
 RevenueCatUI.presentPaywallIfNeeded('pro')
 ```
 
@@ -156,7 +159,7 @@ Never trust the client alone for feature access. The RC webhook updates a `subsc
 
 ```dart
 // Before calling AI Edge Function, the Edge Function itself checks:
-// SELECT is_active FROM subscriptions WHERE user_id = auth.uid()
+// Check the specific entitlement, effective expiry and reconciliation freshness.
 // Client doesn't need to pass subscription state — server checks it directly.
 ```
 
@@ -164,7 +167,7 @@ See [../monetization/webhooks-supabase.md](../monetization/webhooks-supabase.md)
 
 ## Gotchas
 
-- **`appUserID` must be set before configure** — if set after, the anonymous user's purchase history won't transfer to the logged-in user correctly. Set during configure, or call `logIn()` immediately after sign-in.
+- **Identity:** configure with the known user ID or deliberately support anonymous purchases and later logIn. Restore/transfer/alias behavior depends on project policy; test account switching.
 - **`purchaseCancelledError` is not an error** — always handle it silently (user tapped Cancel).
 - **Sandbox on iOS**: use a Sandbox tester Apple ID, not your developer account, for test purchases.
-- **`is_active` in webhooks**: `CANCELLATION` event keeps `is_active = true` until the billing period ends. Only `EXPIRATION` sets it false. See [../monetization/webhooks-supabase.md](../monetization/webhooks-supabase.md).
+- **`is_active` in webhooks**: `CANCELLATION` event keeps `is_active = true` until the billing period ends. Refunds, revocations, expiry and reconciliation can change access; do not derive state from one event type. See [../monetization/webhooks-supabase.md](../monetization/webhooks-supabase.md).

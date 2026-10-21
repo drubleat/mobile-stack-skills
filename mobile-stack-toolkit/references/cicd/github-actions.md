@@ -1,166 +1,45 @@
 ---
-title: GitHub Actions: PR checks + production pipeline
+title: "GitHub Actions: trusted checks and releases"
 impact: HIGH
-impactDescription: "Type check + test + Supabase migration in one pipeline; concurrency groups prevent parallel deploys stomping each other"
-tags: cicd, github-actions, testing, supabase, pipeline
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# GitHub Actions: PR checks + production pipeline
+# GitHub Actions: trusted checks and releases
 
-Use GitHub Actions for the parts EAS Workflows can't handle: type checking, tests, Supabase migration deploys, and custom orchestration. Pair it with EAS Workflows for native builds.
-
-## Required secrets (GitHub → Settings → Secrets)
-
-```
-EXPO_TOKEN              # from expo.dev → account settings → access tokens
-SUPABASE_ACCESS_TOKEN   # from supabase.com → account → access tokens
-SUPABASE_PROJECT_REF    # your project reference (from dashboard URL)
-SUPABASE_DB_PASSWORD    # project database password
-```
-
-## PR check: type check + OTA preview
+Run PR checks without deployment credentials. Do not use `pull_request_target` to execute untrusted PR code, and do not expose publish tokens to a PR merely because it comes from the same repository. Dependencies and lifecycle scripts are executable code too.
 
 ```yaml
-# .github/workflows/pr.yml
-name: PR check
-
-on:
-  pull_request:
-    branches: [main]
-
+name: Checks
+on: [pull_request]
+permissions:
+  contents: read
 jobs:
-  typecheck:
+  check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
         with:
-          node-version: '22'
-          cache: 'npm'
+          node-version-file: .nvmrc
+          cache: npm
       - run: npm ci
-      - run: npx tsc --noEmit
-
-  preview-update:
-    runs-on: ubuntu-latest
-    needs: typecheck
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-      - run: npm ci
-      - uses: expo/expo-github-action@v8
-        with:
-          expo-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-      - name: Deploy preview update
-        run: |
-          eas update \
-            --branch pr-${{ github.event.pull_request.number }} \
-            --message "PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}" \
-            --non-interactive
+      - run: npm run typecheck
+      - run: npm test
 ```
 
-## Production pipeline: migrate → build → submit
+This example assumes those scripts and a supported version in `.nvmrc` exist. Pin actions to reviewed full commit SHAs in production and update them intentionally. `setup-node` caches npm's download cache, not `node_modules`.
 
-```yaml
-# .github/workflows/production.yml
-name: Production deploy
+For a trusted preview/release job, use a protected environment, minimal token permissions and a concurrency group scoped to the target environment. Avoid cancelling an in-progress database migration. With `expo/expo-github-action`, use `eas-version`, not `expo-version`, to install EAS CLI. Resolve and pin a tested CLI release rather than floating on every run.
 
-on:
-  push:
-    branches: [main]
+Never interpolate PR titles, branch names or commit messages directly into `run`. Pass untrusted text through an environment variable and quote its expansion; do not `eval` it. Approve the exact commit before any job executes its code with secrets.
 
-jobs:
-  migrate-supabase:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
-      - name: Apply migrations
-        run: |
-          supabase db push \
-            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
-            --password ${{ secrets.SUPABASE_DB_PASSWORD }}
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+Build with an explicit platform/profile; capture the resulting build ID and pass that exact ID to submission. `eas submit --platform ios --id "$BUILD_ID" --profile production --non-interactive` avoids submitting another concurrent build. Repeat separately for Android. Native signing and store credentials must already be configured.
 
-  build-ios:
-    runs-on: ubuntu-latest
-    needs: migrate-supabase
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-      - run: npm ci
-      - uses: expo/expo-github-action@v8
-        with:
-          expo-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-      - run: eas build --platform ios --profile production --non-interactive
+Use [Supabase deployment](supabase-deploy.md) for compatible schema/function changes. EAS Workflows also supports custom steps and tests; choose the CI host based on project integrations rather than a false capability restriction.
 
-  build-android:
-    runs-on: ubuntu-latest
-    needs: migrate-supabase
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-      - run: npm ci
-      - uses: expo/expo-github-action@v8
-        with:
-          expo-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-      - run: eas build --platform android --profile production --non-interactive
+## Sources
 
-  submit:
-    runs-on: ubuntu-latest
-    needs: [build-ios, build-android]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: expo/expo-github-action@v8
-        with:
-          expo-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-      - run: eas submit --platform all --profile production --non-interactive
-```
+Reviewed 2026-10-20: [GitHub secure use](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions), [Expo GitHub Action](https://github.com/expo/expo-github-action).
 
-## Key patterns
-
-**Always use `--non-interactive`** for any EAS command in CI. Without it, the command may hang waiting for input.
-
-**`needs:` for ordering**: migrations must finish before builds start; builds must finish before submit. GitHub Actions runs jobs in parallel by default unless `needs:` is specified.
-
-**Node version pinned**: use `node-version: '22'` (Node 22 LTS). Don't use `latest` in CI — a Node major version bump can break builds unexpectedly.
-
-**`npm ci` not `npm install`**: `npm ci` uses the lockfile exactly and fails if package-lock.json is out of sync. Faster and reproducible.
-
-## Caching
-
-Add node_modules caching to speed up jobs that install the same dependencies:
-
-```yaml
-- uses: actions/cache@v4
-  with:
-    path: ~/.npm
-    key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-```
-
-The `actions/setup-node@v4` `cache: 'npm'` shorthand handles this automatically.
-
-## EAS Workflows vs GitHub Actions
-
-| Task | Use |
-|---|---|
-| Trigger EAS Build | Either (EAS Workflows simpler) |
-| Type check / tests | GitHub Actions |
-| Supabase migration | GitHub Actions (EAS Workflows can't run `supabase` CLI) |
-| PR status checks on GitHub UI | GitHub Actions |
-| Slack/custom notifications | GitHub Actions |
+Action versions reviewed 2026-10-21: [checkout releases](https://github.com/actions/checkout/releases), [setup-node releases](https://github.com/actions/setup-node/releases). Pin reviewed commit SHAs when the project requires immutable action dependencies.

@@ -1,7 +1,7 @@
 ---
-title: Storage bucket RLS — secure file access with the same model as tables
+title: "Storage bucket RLS — secure file access with the same model as tables"
 impact: HIGH
-impactDescription: "Storage buckets without RLS policies are publicly readable/writable by anyone with the publishable key; every bucket needs explicit policies"
+impactDescription: "Private Storage access is denied without matching policies; public bucket downloads bypass read policies"
 tags: storage, rls, security, supabase, files, buckets
 ---
 
@@ -95,17 +95,17 @@ const { data } = await supabase.storage
 const fileExt = uri.split('.').pop();
 const filePath = `${userId}/${Date.now()}.${fileExt}`;
 
-const response = await fetch(uri);
-const blob = await response.blob();
+// Obtain base64 from the picker or the SDK-compatible file API.
+const bytes = decode(base64); // import { decode } from 'base64-arraybuffer'
 
 const { error } = await supabase.storage
   .from('user-uploads')
-  .upload(filePath, blob, { contentType: `image/${fileExt}` });
+  .upload(filePath, bytes, { contentType: `image/${fileExt}` });
 ```
 
 ## File size and type limits (Edge Function validation)
 
-Storage doesn't enforce file type limits natively — validate in your Edge Function or client before upload:
+Configure bucket-level `file_size_limit` and `allowed_mime_types`. Client validation improves UX but can be bypassed; inspect file bytes server-side when content validation is required:
 
 ```ts
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
