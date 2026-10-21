@@ -18,8 +18,8 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -41,3 +41,5 @@ Use [Supabase deployment](supabase-deploy.md) for compatible schema/function cha
 ## Sources
 
 Reviewed 2026-10-20: [GitHub secure use](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions), [Expo GitHub Action](https://github.com/expo/expo-github-action).
+
+Action versions reviewed 2026-10-21: [checkout releases](https://github.com/actions/checkout/releases), [setup-node releases](https://github.com/actions/setup-node/releases). Pin reviewed commit SHAs when the project requires immutable action dependencies.
