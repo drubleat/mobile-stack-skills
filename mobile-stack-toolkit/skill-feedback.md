@@ -1,5 +1,5 @@
 ---
-title: Skill feedback & known issues
+title: "Skill feedback & known issues"
 impact: LOW
 impactDescription: "Tracks outdated information, missing coverage, and improvement suggestions for this skill"
 tags: meta, feedback, issues
@@ -13,26 +13,17 @@ Found something outdated, wrong, or missing? Add it here.
 
 Open an issue or PR on the repository, or add an entry below with the date.
 
-## Versioning
+## Maintenance policy
 
-This skill targets:
-- **Expo SDK 56** (React Native 0.85, React 19.2)
-- **Supabase JS v2** (`@supabase/supabase-js@2.x`)
-- **react-native-purchases v10** (RevenueCat)
-- **Flutter SDK 3.x** with `flutter_riverpod 3.3.2`, `go_router 17.3.0`
-- **OpenAI Responses API** (gpt-5.4, gpt-5.4-mini, gpt-5.5)
-- **Gemini 3.5** (gemini-3.5-flash, gemini-3.5-flash-lite)
+Check installed versions and official sources before changing a reference. Do not duplicate a live version table here. See the repository audit notes for this maintenance pass.
 
-When a major version ships and these files need updating, that's the right time for a PR.
+## Candidate follow-up topics (not implemented in this pass)
 
-## Known gaps / wishlist
-
-- [ ] Supabase Auth v2 hook — custom access token hook with org/team claims
-- [ ] RevenueCat Billing (web checkout) — new in 2025
-- [ ] Flutter 4.x — when released, update package versions
-- [ ] Stripe mobile SDK — alternative to RevenueCat for one-time purchases
-- [ ] Superwall Flutter — RevenueCat PurchaseController full test coverage
-- [ ] PostHog session replay setup — requires additional config beyond capture
+- Offline synchronization and conflict resolution.
+- Account deletion, data export, and third-party cleanup.
+- Mobile accessibility and localization review.
+- SDK upgrade planning with native compatibility checks.
+- Subscription reconciliation test fixtures and operational monitoring.
 
 ## Changelog
 

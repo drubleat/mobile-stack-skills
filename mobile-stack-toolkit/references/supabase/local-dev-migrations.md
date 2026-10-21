@@ -1,5 +1,5 @@
 ---
-title: Local dev & migrations workflow
+title: "Local dev & migrations workflow"
 impact: HIGH
 impactDescription: "Schema-as-code prevents dashboard drift; missing this step breaks CI and teammates"
 tags: supabase, migrations, local-dev, cli, postgres
@@ -12,11 +12,11 @@ Treat your database schema as **code in `supabase/migrations/`**. The dashboard 
 ## Local stack
 
 ```bash
-npm i -g supabase          # or use `npx supabase` everywhere
-supabase init              # creates supabase/ (config.toml, functions/, migrations/)
-supabase start             # boots the full stack in Docker (db, auth, storage, studio, ...)
-supabase status            # prints local URLs + keys
-supabase stop              # stop (use `--no-backup` to also wipe local data)
+npm install --save-dev supabase  # run commands with npx supabase
+npx supabase init              # creates supabase/ (config.toml, functions/, migrations/)
+npx supabase start             # boots the full stack in Docker (db, auth, storage, studio, ...)
+npx supabase status            # prints local URLs + keys
+npx supabase stop              # stop (use `--no-backup` to also wipe local data)
 ```
 
 `supabase start` needs Docker running. It gives you a complete local Supabase (Postgres + Auth + Storage + Edge Runtime + Studio at `localhost:54323`) so you can develop offline and test against real Postgres, not a mock.
@@ -27,14 +27,14 @@ The reliable loop:
 
 ```bash
 # 1. Create an empty migration and write SQL by hand (preferred — explicit & reviewable)
-supabase migration new create_profiles
+npx supabase migration new create_profiles
 
 # 2. Apply migrations to the local DB
-supabase db reset          # drops local DB, re-runs ALL migrations + seed.sql (clean slate)
+npx supabase db reset          # drops local DB, re-runs ALL migrations + seed.sql (clean slate)
 
 # 3. When happy, push to the remote project
-supabase link --project-ref <ref>
-supabase db push           # applies pending migrations to the linked remote DB
+npx supabase link --project-ref <ref>
+npx supabase db push           # applies pending migrations to the linked remote DB
 ```
 
 - **`supabase db reset`** is your friend locally: it guarantees the migrations actually reproduce the schema from scratch (catches "works because I clicked it in Studio" bugs).
@@ -46,9 +46,9 @@ supabase db push           # applies pending migrations to the linked remote DB
 Keep client types in sync with the schema:
 
 ```bash
-supabase gen types typescript --local > lib/database.types.ts
+npx supabase gen types typescript --local > lib/database.types.ts
 # or from remote:
-supabase gen types typescript --project-id <ref> > lib/database.types.ts
+npx supabase gen types typescript --project-id <ref> > lib/database.types.ts
 ```
 
 Then type the client: `createClient<Database>(...)`. Now `supabase.from('profiles')` is fully typed and a schema change that breaks the app shows up at compile time.

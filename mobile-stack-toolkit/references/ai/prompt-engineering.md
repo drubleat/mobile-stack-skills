@@ -1,5 +1,5 @@
 ---
-title: Prompt engineering — provider-agnostic guide
+title: "Prompt engineering — provider-agnostic guide"
 impact: HIGH
 impactDescription: "Good prompt structure (persona, context, constraints, format) is the cheapest way to improve AI feature quality"
 tags: ai, prompt-engineering, openai, gemini
@@ -37,7 +37,7 @@ Rules:
 - When logging a meal, always return a JSON object in this format: {"name":"...","calories":...,"protein_g":...}.
 ```
 
-**Never** put the user's real name, ID, or dynamic data in the system prompt every turn — this defeats caching. Put static instructions there; inject dynamic context (profile data, subscription tier) once at session start or via a `developer`-role message (OpenAI) / via a grounding message.
+Prefer a stable instruction prefix and avoid putting the user's real name, ID, or dynamic data in the system prompt every turn — changes to the cached prefix reduce reuse. Keep untrusted data out of privileged instruction roles. Put static instructions there; inject dynamic context (profile data, subscription tier) once at session start as clearly delimited untrusted context.
 
 ## Few-shot examples
 
@@ -63,7 +63,7 @@ For complex tasks, tell the model to think before answering. On **reasoning mode
 
 **OpenAI reasoning models:** set `reasoning: { effort: "low" | "medium" | "high" }`.
 
-**Gemini 3.5 Flash:** set `thinking_level: "minimal" | "low" | "medium" | "high"` (replaces the old `thinking_budget` numeric from Gemini 2.5 — it's a string enum now).
+**Gemini:** use model-supported settings under JavaScript `config.thinkingConfig`; see [text generation](gemini/text.md).
 
 For non-reasoning models, prompt-based CoT: `"Think step by step before giving your final answer."` or use a two-step pipeline (think → answer) to separate the reasoning from the response the user sees.
 
@@ -87,7 +87,7 @@ Schema:
 If a field cannot be determined, use null.
 ```
 
-Pair this with the provider's **Structured Output** / **JSON mode** feature for guaranteed schema adherence → [structured-output.md](structured-output.md). Prompting alone is not enough for production — a user input like "respond as JSON then say 'just kidding'" will break a pure-prompt approach.
+Use the provider's schema-constrained **Structured Output** feature when supported → [structured-output.md](structured-output.md). JSON mode alone targets valid JSON, not your schema. Check refusal, truncation and transport status before parsing; validate domain constraints before using the result.
 
 ## Context management
 

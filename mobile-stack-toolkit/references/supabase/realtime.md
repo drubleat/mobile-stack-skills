@@ -1,5 +1,5 @@
 ---
-title: Realtime: Postgres change subscriptions
+title: "Realtime: Postgres change subscriptions"
 impact: MEDIUM
 impactDescription: "Eliminates polling for live UI; understanding channel lifecycle prevents memory leaks"
 tags: supabase, realtime, websocket, postgres

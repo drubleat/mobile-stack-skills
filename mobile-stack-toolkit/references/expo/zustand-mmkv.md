@@ -1,5 +1,5 @@
 ---
-title: Zustand + MMKV — state management & fast persistence
+title: "Zustand + MMKV — state management & fast persistence"
 impact: MEDIUM-HIGH
 impactDescription: "Zustand replaces Redux with minimal boilerplate; MMKV is ~30x faster than AsyncStorage for persisted state — wrong persist setup causes hydration flickers"
 tags: zustand, mmkv, state-management, persistence, expo, react-native
@@ -69,7 +69,7 @@ import { createMMKV } from 'react-native-mmkv';
 export const storage = createMMKV({ id: 'app-storage' });
 ```
 
-Use directly for non-Zustand persistence (tokens, flags):
+Use directly for non-sensitive preferences and flags:
 
 ```ts
 // Write
@@ -81,7 +81,7 @@ const onboarded = storage.getBoolean('onboarded');  // boolean | undefined
 const theme = storage.getString('theme');            // string | undefined
 
 // Delete
-storage.delete('onboarded');
+storage.remove('onboarded');
 ```
 
 ---
@@ -107,7 +107,7 @@ interface UserState {
 const mmkvStorage = createJSONStorage(() => ({
   setItem: (key: string, value: string) => storage.set(key, value),
   getItem: (key: string) => storage.getString(key) ?? null,
-  removeItem: (key: string) => storage.delete(key),
+  removeItem: (key: string) => storage.remove(key),
 }));
 
 export const useUserStore = create<UserState>()(
@@ -138,7 +138,7 @@ export const useUserStore = create<UserState>()(
 
 ## Handling hydration (avoid flicker)
 
-On app launch, the persisted store rehydrates asynchronously. Check `_hasHydrated` before rendering authenticated content:
+With synchronous MMKV storage, Zustand hydration is synchronous; asynchronous adapters hydrate later. Check `_hasHydrated` before rendering authenticated content:
 
 ```ts
 // Add to your store:
@@ -205,9 +205,8 @@ Subscribe to changes outside React:
 
 ```ts
 const unsubscribe = useUserStore.subscribe(
-  (state) => state.userId,
-  (userId) => {
-    if (!userId) router.replace('/login');
+  (state, previous) => {
+    if (state.userId !== previous.userId && !state.userId) router.replace('/login');
   },
 );
 // Call unsubscribe() to clean up
@@ -231,14 +230,14 @@ store/
 
 ## MMKV encryption
 
-For sensitive data (tokens, PII), enable AES encryption:
+If encrypted MMKV is needed, generate a random key and store it in Keychain/Keystore. Never use a bundled `EXPO_PUBLIC_*` key. After loading that key asynchronously:
 
 ```ts
 import { createMMKV } from 'react-native-mmkv';
 
 export const secureStorage = createMMKV({
   id: 'secure-storage',
-  encryptionKey: process.env.EXPO_PUBLIC_MMKV_KEY, // rotate per build via EAS secrets
+  encryptionKey: deviceKeyFromSecureStore, // random per-install key loaded before creating this instance
 });
 ```
 
@@ -251,5 +250,5 @@ Note: For auth tokens, prefer `expo-secure-store` (uses iOS Keychain / Android K
 - **MMKV requires a Dev Build.** `npx expo prebuild` must be run before using MMKV.
 - **MMKV requires RN 0.76+** (Expo SDK 52+). It's a Nitro Module — the old `@rdlabo/react-native-mmkv` pre-Nitro API is different.
 - **`partialize` is important.** Persisting action functions is harmless but wasteful — use `partialize` to persist only data fields.
-- **Don't use `createJSONStorage(() => AsyncStorage)` for Zustand in new apps** — MMKV is significantly faster and more reliable.
-- **Hydration is async even with MMKV.** It's fast but not synchronous — always guard with `_hasHydrated` for auth-gated screens.
+- AsyncStorage is a supported persistence choice. Select storage based on workload, platform support, and security needs.
+- Synchronous MMKV hydration does not prove authentication. Restore/verify the auth SDK session before rendering authenticated content.

@@ -1,5 +1,5 @@
 ---
-title: OTA updates with EAS Update
+title: "OTA updates with EAS Update"
 impact: MEDIUM-HIGH
 impactDescription: "OTA ships JS fixes in minutes without store review; channel management prevents staging updates reaching production users"
 tags: expo, ota, eas-update, channels
@@ -35,7 +35,7 @@ Set the policy in config instead of hand-managing version strings:
 { "runtimeVersion": { "policy": "fingerprint" } }
 ```
 
-`fingerprint` hashes your native dependency graph and auto-changes the runtime version exactly when native code changes — so you can't accidentally push a JS update that assumes a native module the installed build doesn't have. This is the modern default; the older `appVersion`/`sdkVersion` policies are coarser and easier to footgun.
+`fingerprint` hashes your native dependency graph and auto-changes the runtime version exactly when native code changes — so you can't accidentally push a JS update that assumes a native module the installed build doesn't have. This is an explicit policy choice; the older `appVersion`/`sdkVersion` policies are coarser and easier to footgun.
 
 ## Publishing updates
 
@@ -48,8 +48,8 @@ To map a branch to a channel explicitly: `eas channel:edit production --branch p
 
 ## Rollouts & rollbacks
 
-- **Gradual rollout:** publish to a branch and roll out to a percentage, increasing as it proves stable (manage via the dashboard or `eas update:roll-out`).
-- **Rollback:** `eas update:rollback` (or republish a known-good update / repoint the branch). Because there's no store review, recovery from a bad JS bug is minutes, not days.
+- **Gradual rollout:** publish to a branch and roll out to a percentage, increasing as it proves stable (manage via the dashboard or `eas update --rollout-percentage <percent>` and the documented update editing commands).
+- **Rollback:** `eas update:rollback` (or republish a known-good update / repoint the branch). Because there's no store review, recovery depends on clients fetching a compatible update; offline clients do not update immediately.
 - **Inspect:** `eas update:list --branch production`, `eas update:view <id>`.
 
 ## What CANNOT go through OTA

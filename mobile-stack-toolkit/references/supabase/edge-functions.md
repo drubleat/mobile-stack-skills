@@ -1,5 +1,5 @@
 ---
-title: Edge Functions: server-side TypeScript on Deno
+title: "Edge Functions: server-side TypeScript on Deno"
 impact: HIGH
 impactDescription: "Every secret, AI call, and privileged action lives here; wrong patterns expose keys or bypass RLS"
 tags: supabase, edge-functions, deno, secrets, ai-proxy
@@ -69,7 +69,9 @@ supabase functions deploy webhook --no-verify-jwt  # for public webhooks (Revenu
 
 `--no-verify-jwt` (or `verify_jwt = false` in `config.toml`) is required for endpoints called by external services that don't carry a Supabase JWT — e.g. the RevenueCat webhook, which you instead authenticate with a shared secret header → [../monetization/webhooks-supabase.md](../monetization/webhooks-supabase.md).
 
-## CORS (always needed for app calls)
+## CORS (browser/web clients)
+
+Native mobile HTTP clients do not enforce browser CORS. Web builds do; handle preflight and appropriate origins. CORS is not authentication or authorization.
 
 ```ts
 const cors = {

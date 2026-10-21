@@ -1,5 +1,5 @@
 ---
-title: Local toolchain troubleshooting
+title: "Local toolchain troubleshooting"
 impact: MEDIUM
 impactDescription: "Covers the recurring Xcode/Android Studio/Metro failures that cost hours of debugging"
 tags: expo, troubleshooting, xcode, android, metro

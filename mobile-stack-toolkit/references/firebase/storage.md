@@ -1,139 +1,37 @@
 ---
-title: Firebase Storage: GCS-backed file storage
-impact: MEDIUM
-impactDescription: "Prefer Supabase Storage in hybrid stacks; Firebase Storage is the right choice in Firebase-standalone setups"
-tags: firebase, storage, uploads, gcs
+title: "Firebase Storage: upload and access boundaries"
+impact: HIGH
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# Firebase Storage
+# Firebase Storage: upload and access boundaries
 
-Firebase Storage is an alternative to Supabase Storage backed by Google Cloud Storage. Use it if you're in a Firebase-standalone setup. In a Supabase + Firebase hybrid, prefer Supabase Storage — it's simpler to secure with RLS and avoids mixing access control systems.
+Use modular RN Firebase APIs (`getStorage`, `ref`, `putFile`, `getDownloadURL`) or Flutter's `FirebaseStorage.instance.ref`. Check picker cancellation, actual MIME/size and upload completion/errors. A local path is not automatically supported on every platform; follow the native SDK's file/byte contract.
 
-## When to use Firebase Storage vs Supabase Storage
+A Firebase download URL contains a bearer download token. It is not a short-lived signed URL and can remain usable by anyone holding it independently of later rules changes. Use authenticated SDK reads for private content or a deliberately designed short-lived serving endpoint. Rotate/revoke tokens or delete objects when invalidating shared links.
 
-| Use Firebase Storage | Use Supabase Storage |
-|---|---|
-| Firebase-standalone project | Supabase + Firebase hybrid |
-| Already invested in Firebase ecosystem | User auth is in Supabase |
-| Need CDN via Firebase Hosting integration | Need RLS-controlled private files |
-| Large file storage (video, audio at scale) | Simple bucket + folder path model |
+Rules example for owner-managed images (adapt size/type policy):
 
-## Setup
-
-```bash
-npx expo install @react-native-firebase/storage
-```
-
-No additional plugin config needed beyond `@react-native-firebase/app`.
-
-## Upload a file
-
-```ts
-import storage from '@react-native-firebase/storage';
-import * as ImagePicker from 'expo-image-picker';
-
-async function uploadAvatar(userId: string) {
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ImagePicker.MediaTypeOptions.Images,
-    quality: 0.8,
-  });
-  if (result.canceled) return;
-
-  const uri = result.assets[0].uri;
-  const ref = storage().ref(`avatars/${userId}/avatar.jpg`);
-
-  const task = ref.putFile(uri);
-
-  task.on('state_changed', (snapshot) => {
-    const progress = snapshot.bytesTransferred / snapshot.totalBytes;
-    setUploadProgress(progress);
-  });
-
-  await task;
-
-  const downloadUrl = await ref.getDownloadURL();
-  return downloadUrl;
-}
-```
-
-`putFile` takes a local file path (the `uri` from image picker). It handles chunking and retries internally.
-
-## Upload from bytes / blob
-
-```ts
-const bytes = await fetch(imageUri).then((r) => r.arrayBuffer());
-const ref = storage().ref(`images/${userId}/${Date.now()}.jpg`);
-await ref.put(bytes, { contentType: 'image/jpeg' });
-const url = await ref.getDownloadURL();
-```
-
-## Download URL
-
-Download URLs from Firebase Storage are permanent, publicly accessible URLs (if the bucket/file is public) or signed URLs (for private files). Unlike Supabase, Firebase Storage uses Firebase Security Rules rather than RLS.
-
-## Security rules
-
-Rules live in `storage.rules`. Deploy with `firebase deploy --only storage`.
-
-```firestore
+```text
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // User can only read/write their own directory
-    match /avatars/{userId}/{allPaths=**} {
-      allow read: if request.auth != null;                         // any authenticated user can read avatars
-      allow write: if request.auth != null && request.auth.uid == userId;  // only own files
-    }
-
-    match /private/{userId}/{allPaths=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    match /users/{uid}/{path=**} {
+      function owner() { return request.auth != null && request.auth.uid == uid; }
+      allow read, delete: if owner();
+      allow create, update: if owner()
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
     }
   }
 }
 ```
 
-## Delete a file
+Delete has no incoming resource, so keep its rule separate from upload validation. MIME metadata is not malware/content verification; validate actual bytes in a trusted pipeline when required. Test unauthenticated access, cross-user access, oversize/invalid uploads, overwrite and deletion with the Rules emulator.
 
-```ts
-await storage().ref(`avatars/${userId}/avatar.jpg`).delete();
-```
+Use resumable transfers/cancellation when the SDK supports them, clean abandoned uploads, and track metadata writes independently so partial failures can be repaired. Never store service-account credentials in a mobile app.
 
-## List files in a directory
+## Sources
 
-```ts
-const listResult = await storage().ref(`avatars/${userId}`).list({ maxResults: 20 });
-const urls = await Promise.all(
-  listResult.items.map((item) => item.getDownloadURL())
-);
-```
-
-## Flutter
-
-```dart
-import 'package:firebase_storage/firebase_storage.dart';
-
-final storageRef = FirebaseStorage.instance.ref();
-final avatarRef = storageRef.child('avatars/$userId/avatar.jpg');
-
-// Upload from file
-final file = File(localPath);
-final task = avatarRef.putFile(file);
-
-task.snapshotEvents.listen((snapshot) {
-  final progress = snapshot.bytesTransferred / snapshot.totalBytes;
-  print('Upload progress: $progress');
-});
-
-await task;
-final downloadUrl = await avatarRef.getDownloadURL();
-
-// Upload from bytes
-final bytes = await imageFile.readAsBytes();
-await avatarRef.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
-```
-
-## Gotchas
-
-- **Large file uploads on mobile**: `putFile` handles chunking automatically, but the upload can fail if the device loses connectivity mid-upload. Firebase Storage resumes uploads automatically if the same task object is still in scope; completed chunks don't need to be re-uploaded.
-- **Download URLs expire**: URLs returned by `getDownloadURL()` are long-lived but can be invalidated if security rules change or the file is deleted. Don't cache them forever.
-- **Firebase Storage vs Supabase Storage URLs**: Firebase Storage URLs are direct Google CDN URLs. Supabase Storage URLs are proxied through Supabase's own CDN. Both work fine for images in mobile apps.
+Reviewed 2026-10-20: [RN Storage](https://rnfirebase.io/storage/usage), [Storage Rules](https://firebase.google.com/docs/storage/security).

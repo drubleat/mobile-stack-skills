@@ -1,5 +1,5 @@
 ---
-title: Avoid N+1 queries with PostgREST resource embedding
+title: "Avoid N+1 queries with PostgREST resource embedding"
 impact: HIGH
 impactDescription: "N+1 patterns send hundreds of round-trips for paginated lists; PostgREST embedding collapses these into one query"
 tags: performance, postgrest, queries, embedding, joins
@@ -79,7 +79,7 @@ const { data } = await supabase
 For complex aggregations or cross-table analytics, create a Postgres view or function and expose it via PostgREST:
 
 ```sql
-create view conversation_summaries as
+create view conversation_summaries with (security_invoker = true) as
   select c.id, c.title, count(m.id) as message_count,
          max(m.created_at) as last_message_at
   from conversations c

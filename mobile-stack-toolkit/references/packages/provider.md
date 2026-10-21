@@ -1,5 +1,5 @@
 ---
-title: provider 6.1.5+1 — InheritedWidget state management
+title: "provider 6.1.5+1 — InheritedWidget state management"
 impact: MEDIUM-HIGH
 impactDescription: "Simplest state management for small/medium apps; MultiProvider at root is the standard pattern"
 tags: flutter, state, provider, inherited-widget
@@ -7,7 +7,7 @@ tags: flutter, state, provider, inherited-widget
 
 # provider — InheritedWidget state management
 
-**Version:** 6.1.5+1  
+**Historical example baseline:** 6.1.5+1   — resolve a compatible installed version before using these snippets.
 **Platforms:** all (no native code)
 
 ```yaml
@@ -146,6 +146,8 @@ Or restructure so providers are only accessed from widgets.
 
 - `context.watch<T>()` **must** be called inside `build()` — not in `initState`, callbacks, or async functions.
 - `context.read<T>()` in `build()` looks like it works but won't rebuild — always use `watch` in build, `read` in callbacks.
-- Placing a `ChangeNotifierProvider` inside a widget that rebuilds frequently recreates the notifier on every rebuild. Always place providers above the widget that needs them, typically near the root.
-- `notifyListeners()` after `dispose()` throws. Guard with `if (!hasListeners)` or use `mounted` checks in async methods.
+- A normal parent rebuild preserves a provider's notifier when its element identity is retained. Removing/reinserting the provider or changing its key can recreate it. Place it above its consumers at the intended lifetime scope; use `.value` for an existing notifier.
+
+Reviewed 2026-10-21 against [provider lifecycle guidance](https://pub.dev/packages/provider).
+- `notifyListeners()` after `dispose()` throws. Track disposal explicitly and cancel pending work; `hasListeners` is not a disposed flag. Use widget `mounted` only for widget state.
 - `MultiProvider` order matters for `ProxyProvider` — the dependency must come before the dependent.

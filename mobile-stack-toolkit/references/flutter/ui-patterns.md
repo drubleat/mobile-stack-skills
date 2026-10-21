@@ -1,5 +1,5 @@
 ---
-title: UI patterns: theming, responsive, platform adaptations
+title: "UI patterns: theming, responsive, platform adaptations"
 impact: MEDIUM-HIGH
 impactDescription: "Material 3 ColorScheme.fromSeed is the 2024+ theming baseline; adaptive widgets prevent platform uncanny valley"
 tags: flutter, ui, theming, material3, responsive
@@ -131,7 +131,7 @@ Widget buildButton(String label, VoidCallback onTap) {
 }
 
 // Date picker
-void showDatePicker(BuildContext context) {
+void showAdaptiveDatePicker(BuildContext context) {
   if (Platform.isIOS) {
     showCupertinoModalPopup(
       context: context,

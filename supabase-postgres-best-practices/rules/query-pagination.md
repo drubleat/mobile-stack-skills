@@ -1,7 +1,7 @@
 ---
-title: Pagination — keyset over offset for large tables
+title: "Pagination — keyset over offset for large tables"
 impact: HIGH
-impactDescription: "OFFSET N scans and discards N rows on every page; keyset pagination is O(1) regardless of page depth"
+impactDescription: "OFFSET N scans and discards N rows on every page; indexed keyset pagination avoids repeatedly discarding earlier pages"
 tags: pagination, performance, postgres, postgrest, queries
 ---
 
@@ -50,6 +50,7 @@ const { data } = await supabase
   .limit(20);
 
 const cursor = data?.at(-1); // { id, created_at }
+if (!cursor) return []; // no next page; validate externally supplied cursors
 
 // Next page
 const { data: nextPage } = await supabase

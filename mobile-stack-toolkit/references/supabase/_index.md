@@ -1,5 +1,5 @@
 ---
-title: Supabase — domain index
+title: "Supabase — domain index"
 impact: MEDIUM-HIGH
 impactDescription: "Routes to auth, RLS, Edge Functions, Storage, Realtime — load first when any Supabase topic is mentioned"
 tags: supabase, index, postgres, auth
@@ -26,7 +26,7 @@ Postgres + Auth + Edge Functions + Storage + Realtime. You can adopt any subset 
 | Reliable async job queues with retries (pgmq) | [queues.md](queues.md) |
 | Connect Claude Code directly to your Supabase project | [mcp-mode.md](mcp-mode.md) |
 
-AI proxy functions → [../ai/edge-proxy-architecture.md](../ai/edge-proxy-architecture.md). RevenueCat webhook → [../monetization/webhooks-supabase.md](../monetization/webhooks-supabase.md). Deep Postgres rules (indexes, locking, pooling) → [supabase-postgres-best-practices](../../../supabase-postgres-best-practices/SKILL.md).
+AI proxy functions → [../ai/edge-proxy-architecture.md](../ai/edge-proxy-architecture.md). RevenueCat webhook → [../monetization/webhooks-supabase.md](../monetization/webhooks-supabase.md). Deep Postgres rules (indexes, locking, pooling) → `supabase-postgres-best-practices` (optional installed companion).
 
 ## Non-negotiables
 

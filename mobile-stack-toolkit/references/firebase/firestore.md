@@ -1,242 +1,66 @@
 ---
-title: Cloud Firestore: data model, rules, queries
-impact: MEDIUM-HIGH
-impactDescription: "Document/collection model differs fundamentally from Postgres; security rules must mirror RLS discipline"
-tags: firebase, firestore, nosql, rules, queries
+title: "Firestore data and field authorization"
+impact: HIGH
+impactDescription: "Avoid incompatible APIs and unsafe mobile integration defaults"
+tags: mobile, integration, correctness
 ---
 
-# Cloud Firestore: data model, rules, queries
+# Firestore data and field authorization
 
-## Data model
+Model collections around access/query patterns. Security Rules are not filters: queries must be compatible with the rule. Admin SDKs bypass client rules and require their own authorization. Standard Firestore supports collection-group queries; they do not require an Enterprise migration.
 
-Firestore is a document-oriented NoSQL database: **Collection → Document → Fields**. Documents can have subcollections.
-
-```
-/users/{uid}               → user profile document
-/users/{uid}/posts/{id}    → subcollection of posts per user
-/chats/{chatId}            → top-level chat document
-/chats/{chatId}/messages/{id}  → subcollection of messages
-```
-
-Design rules:
-- Keep documents small (< 1MB; aim for < 10KB). Large documents are slow to read.
-- Queries can only filter/sort on fields within a single collection (no JOINs).
-- Use subcollections for one-to-many relationships.
-- Use top-level collections for cross-user queries (e.g. a global activity feed).
-
-## Basic CRUD
+Use modular React Native Firebase APIs for modern versions:
 
 ```ts
-import firestore from '@react-native-firebase/firestore';
-
-// Create / set document
-await firestore().collection('users').doc(uid).set({
-  email: 'user@example.com',
-  plan: 'free',
-  createdAt: firestore.FieldValue.serverTimestamp(),
+import { getFirestore, doc, setDoc, updateDoc, serverTimestamp } from '@react-native-firebase/firestore';
+const db = getFirestore();
+await setDoc(doc(db, 'users', uid), {
+  displayName: 'New user', plan: 'free', createdAt: serverTimestamp(),
 });
-
-// Read document (one-time)
-const doc = await firestore().collection('users').doc(uid).get();
-if (doc.exists) console.log(doc.data());
-
-// Update (merge — doesn't overwrite whole document)
-await firestore().collection('users').doc(uid).update({
-  plan: 'pro',
-  updatedAt: firestore.FieldValue.serverTimestamp(),
-});
-
-// Delete
-await firestore().collection('users').doc(uid).delete();
+await updateDoc(doc(db, 'users', uid), { displayName: 'Updated name' });
 ```
 
-## Real-time listener
-
-```ts
-const unsubscribe = firestore()
-  .collection('posts')
-  .where('authorId', '==', uid)
-  .orderBy('createdAt', 'desc')
-  .limit(20)
-  .onSnapshot((snapshot) => {
-    const posts = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    setPosts(posts);
-  });
-
-// Cleanup on unmount
-useEffect(() => {
-  return unsubscribe;
-}, []);
-```
-
-## Queries and indexes
-
-Firestore supports equality filters on multiple fields. Compound queries (multiple `where` clauses or `orderBy` + `where`) require a **composite index**. The Firebase console error message will include a link to create the missing index.
-
-```ts
-// This requires a composite index on (category, createdAt):
-firestore()
-  .collection('posts')
-  .where('category', '==', 'recipes')
-  .orderBy('createdAt', 'desc')
-  .get()
-```
-
-## Batch writes and transactions
-
-```ts
-// Batch: multiple writes in one atomic operation (no reads)
-const batch = firestore().batch();
-batch.set(firestore().collection('posts').doc(), { title: 'Post A' });
-batch.update(firestore().collection('users').doc(uid), { postCount: firestore.FieldValue.increment(1) });
-await batch.commit();
-
-// Transaction: read + write atomically
-await firestore().runTransaction(async (tx) => {
-  const userDoc = await tx.get(firestore().collection('users').doc(uid));
-  const currentCount = userDoc.data()?.postCount ?? 0;
-  tx.update(firestore().collection('users').doc(uid), { postCount: currentCount + 1 });
-});
-```
-
-## Security rules
-
-Firestore rules live in `firestore.rules`. Deploy with:
-
-```bash
-npx -y firebase-tools@latest deploy --only firestore:rules
-```
-
-### Core principles (from Firebase's security-rules-auditor)
-
-1. **Default deny** — start with denying everything, allow only what's needed
-2. **Validate on BOTH create AND update** — the most common bypass is validating only on create
-3. **Never trust user-provided role/ownership fields** — always derive from `request.auth.uid`
-4. **Type-check fields** — use `is string`, `is int`, `is timestamp`
-5. **Size limits** — add string length and array size constraints to prevent DoS
-
-### Validator function pattern (required for production)
+## Server-owned paid plan
 
 ```firestore
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // ── USERS ──────────────────────────────────────────────────────────
-    function isValidUserData(data) {
-      return data.keys().hasOnly(['email', 'displayName', 'plan', 'createdAt', 'updatedAt'])
-        && data.email is string && data.email.size() < 256
-        && data.displayName is string && data.displayName.size() < 100
-        && data.plan in ['free', 'pro', 'enterprise'];
+    function owns(uid) {
+      return request.auth != null && request.auth.uid == uid;
     }
-
+    function validProfile(data) {
+      return data.keys().hasAll(['displayName', 'plan', 'createdAt'])
+        && data.keys().hasOnly(['displayName', 'plan', 'createdAt'])
+        && data.displayName is string && data.displayName.size() <= 100
+        && data.plan in ['free', 'pro', 'enterprise']
+        && data.createdAt is timestamp;
+    }
     match /users/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
-      allow create: if request.auth != null
-                    && request.auth.uid == uid
-                    && isValidUserData(request.resource.data);
-      // CRITICAL: validate on update too — users can't change their own uid/plan via client
-      allow update: if request.auth != null
-                    && request.auth.uid == uid
-                    && isValidUserData(request.resource.data)
-                    && request.resource.data.plan == resource.data.plan;  // plan only via server
-      allow delete: if false;  // never allow client-side profile deletion
-    }
-
-    // ── POSTS ──────────────────────────────────────────────────────────
-    function isValidPost(data) {
-      return data.keys().hasOnly(['title', 'content', 'authorId', 'createdAt', 'updatedAt'])
-        && data.title is string && data.title.size() > 0 && data.title.size() < 200
-        && data.content is string && data.content.size() < 50000
-        && data.authorId == request.auth.uid;  // enforce ownership in data
-    }
-
-    match /posts/{postId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null && isValidPost(request.resource.data);
-      allow update: if request.auth != null
-                    && resource.data.authorId == request.auth.uid  // owner check
-                    && isValidPost(request.resource.data);
-      allow delete: if request.auth != null && resource.data.authorId == request.auth.uid;
-    }
-
-    // ── USER SUBCOLLECTIONS ─────────────────────────────────────────────
-    match /users/{uid}/messages/{msgId} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if owns(uid);
+      allow create: if owns(uid) && validProfile(request.resource.data)
+        && request.resource.data.plan == 'free'
+        && request.resource.data.createdAt == request.time;
+      allow update: if owns(uid) && validProfile(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName']);
+      allow delete: if false; // account deletion is a separate authenticated server workflow
     }
   }
 }
 ```
 
-### The update bypass (most common security hole)
+Restrict protected fields on **create and update**. Merely allowing `plan` values from an enum lets a new client choose `pro`. The server can reconcile billing state with the Admin SDK. Keep private and public fields in separate documents when readers differ; reads cannot hide selected fields.
 
-```firestore
-// ❌ WRONG — user can create with valid data, then update to set role='admin'
-match /users/{uid} {
-  allow create: if isValidUserData(request.resource.data);
-  allow update: if request.auth.uid == uid;  // no data validation on update!
-}
+## Query and lifecycle checks
 
-// ✅ CORRECT — same validator runs on both create and update
-match /users/{uid} {
-  allow create: if request.auth.uid == uid && isValidUserData(request.resource.data);
-  allow update: if request.auth.uid == uid && isValidUserData(request.resource.data);
-}
-```
+- Use an appropriate composite index when the query requires it. Missing-index errors are failures with creation guidance, not empty successful result sets. Commit index configuration.
+- Bound queries and paginate with a stable cursor. Collection reads do not recursively fetch subcollections.
+- Unsubscribe snapshot listeners on disposal; surface listener errors. Transactions may rerun, so keep external side effects outside their callback.
+- Native SDK offline persistence can retain personal data across account changes; define cache/sign-out behavior and test it.
+- Emulator tests should reject creating a paid plan, changing it later, adding an unauthorized field, accessing another user, and unauthenticated access, while permitting valid profile edits.
 
-### Deploy and verify
+For Flutter use `Firebase.initializeApp` before `FirebaseFirestore.instance`; `cloud_firestore` exposes `doc`, `set`, `update`, snapshots, transactions, and batches.
 
-```bash
-# Deploy rules
-npx -y firebase-tools@latest deploy --only firestore:rules
+## Sources
 
-# Test rules locally with emulator
-npx -y firebase-tools@latest emulators:start --only firestore
-```
-
-## Firestore editions (Standard vs Enterprise)
-
-Supabase is not relevant here but Firestore has two editions:
-- **Standard** — default, basic NoSQL
-- **Enterprise** — native mode, higher throughput limits, collection group queries, better for large apps
-
-Check which you have:
-```bash
-npx -y firebase-tools@latest firestore:databases:get '(default)'
-```
-
-New projects default to Standard. Migrate to Enterprise via `firestore:databases:create --edition=enterprise` if you need collection group queries or > 1M writes/day.
-
-## Offline support
-
-Firestore caches documents locally automatically. Reads from cache when offline, writes queue and sync when reconnected. No configuration needed — this is on by default in the RN SDK.
-
-## Flutter
-
-```dart
-import 'package:cloud_firestore/cloud_firestore.dart';
-
-final db = FirebaseFirestore.instance;
-
-// Write
-await db.collection('users').doc(uid).set({
-  'email': email,
-  'createdAt': FieldValue.serverTimestamp(),
-});
-
-// Real-time stream
-StreamBuilder<DocumentSnapshot>(
-  stream: db.collection('users').doc(uid).snapshots(),
-  builder: (context, snapshot) {
-    if (!snapshot.hasData) return const CircularProgressIndicator();
-    final data = snapshot.data!.data() as Map<String, dynamic>?;
-    return Text(data?['email'] ?? '');
-  },
-)
-```
-
-## Gotchas
-
-- `serverTimestamp()` fields appear as `null` in the snapshot immediately after a write (before the server acknowledges). Store local timestamps separately if you need to display them immediately.
-- Queries are shallow — they only return documents in the matched collection, not subcollections.
-- `limit()` applies after `orderBy`, so always combine them for pagination.
-- Missing composite index → the query silently returns 0 results (or throws a permission-denied-like error). Check the console.
+Reviewed 2026-10-20: [Firestore field rules](https://firebase.google.com/docs/firestore/security/rules-fields), [RN Firebase migration](https://rnfirebase.io/migrating-to-v22).

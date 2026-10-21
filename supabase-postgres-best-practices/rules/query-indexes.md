@@ -1,5 +1,5 @@
 ---
-title: Index design for Supabase / PostgREST queries
+title: "Index design for Supabase / PostgREST queries"
 impact: CRITICAL
 impactDescription: "Missing indexes on filter/sort columns cause sequential scans; a single missing index on a 1M-row table turns a 2ms query into a 2s query"
 tags: indexes, performance, postgres, query, schema
@@ -9,7 +9,7 @@ tags: indexes, performance, postgres, query, schema
 
 ## Always index FK columns
 
-Every foreign key column should have an index. Postgres does **not** auto-create indexes on FK columns (unlike primary keys).
+Consider indexes on referencing foreign keys used for joins, filters or parent changes; verify existing composite indexes and workload. Postgres does **not** auto-create indexes on FK columns (unlike primary keys).
 
 ```sql
 -- profiles.user_id references auth.users(id)
@@ -21,7 +21,7 @@ create index on messages(conversation_id);
 
 ## Composite indexes: column order matters
 
-Put the most selective column first. For range + equality queries, put the equality column first:
+Choose column order from the actual predicates and sort order; selectivity alone is not a universal rule. For range + equality queries, put the equality column first:
 
 ```sql
 -- Query: WHERE user_id = $1 AND created_at > $2 ORDER BY created_at DESC
@@ -49,14 +49,14 @@ create index on products using gin(to_tsvector('english', name || ' ' || descrip
 ## Covering indexes (INCLUDE) to avoid heap fetches
 
 ```sql
--- Include all columns the query needs — avoids heap fetch entirely
+-- Include all columns the query needs — can enable index-only scans when visibility permits
 create index on messages(user_id, created_at desc)
   include (content, read_at);
 ```
 
 ## What to avoid
 
-- **Over-indexing**: every write pays index maintenance. Keep unused indexes dropped.
+- **Over-indexing**: every write pays index maintenance. Review constraints and a representative observation period before dropping an index.
 - **Indexing low-cardinality columns alone**: `CREATE INDEX ON users(is_active)` is useless if 99% of rows are `true`.
 - **Ignoring VACUUM**: dead tuples bloat indexes; ensure autovacuum is running.
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Supabase Postgres Best Practices"
+  short_description: "Review SQL, RLS, migrations, and Postgres performance"
+  default_prompt: "Use $supabase-postgres-best-practices to inspect my project and implement the requested change using only the relevant references."

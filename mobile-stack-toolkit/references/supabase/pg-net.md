@@ -1,114 +1,33 @@
 ---
-title: pg_net — async HTTP calls from Postgres triggers and functions
-impact: MEDIUM
-impactDescription: "pg_net enables fire-and-forget webhook delivery and Edge Function triggers from database events without external infrastructure"
-tags: pg-net, supabase, http, webhooks, triggers, postgres
+title: "pg_net: asynchronous HTTP"
+impact: HIGH
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# pg_net: async HTTP from the database
+# pg_net: asynchronous HTTP
 
-pg_net lets Postgres make outbound HTTP requests asynchronously — the request is queued and executed in the background, without blocking the transaction.
-
-## When to use pg_net
-
-| Use case | Right tool |
-|---|---|
-| Fire webhook on row insert/update | pg_net |
-| Trigger Edge Function from a DB event | pg_net |
-| Simple one-shot notification | pg_net |
-| Reliable delivery with retries | pgmq (see [queues.md](queues.md)) |
-| Recurring scheduled calls | pg_cron (see [pg-cron.md](pg-cron.md)) |
-
-## Trigger an Edge Function on new user signup
+`net.http_post` queues a request whose execution begins after commit. Its returned bigint is a request ID, not an HTTP response. A successful enqueue does not establish delivery; use a durable queue/outbox when the side effect must survive failures.
 
 ```sql
-create or replace function handle_new_user()
-returns trigger language plpgsql security definer set search_path = public as $$
-begin
-  perform net.http_post(
-    url     := current_setting('app.supabase_url') || '/functions/v1/on-new-user',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.service_key')
-    ),
-    body    := jsonb_build_object(
-      'user_id', NEW.id,
-      'email', NEW.email,
-      'created_at', NEW.created_at
-    )
-  );
-  return NEW;
-end;
-$$;
-
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function handle_new_user();
-```
-
-## Trigger on subscription state change
-
-```sql
-create or replace function notify_subscription_change()
-returns trigger language plpgsql as $$
-begin
-  if OLD.is_active != NEW.is_active or OLD.plan != NEW.plan then
-    perform net.http_post(
-      url     := current_setting('app.supabase_url') || '/functions/v1/subscription-changed',
-      headers := jsonb_build_object(
-        'Content-Type', 'application/json',
-        'Authorization', 'Bearer ' || current_setting('app.service_key')
-      ),
-      body    := jsonb_build_object(
-        'user_id', NEW.user_id,
-        'old_plan', OLD.plan,
-        'new_plan', NEW.plan,
-        'is_active', NEW.is_active
-      )
-    );
-  end if;
-  return NEW;
-end;
-$$;
-
-create trigger on_subscription_update
-  after update on subscriptions
-  for each row execute function notify_subscription_change();
-```
-
-## Check request status
-
-```sql
--- See recent HTTP calls and their outcomes
-select id, method, url, status_code, error_msg,
-       response_status, created
-from net._http_response
-order by created desc
-limit 20;
-
--- Failed requests (may need retry)
-select id, url, error_msg, created
-from net._http_response
-where status_code is null or status_code >= 400
-order by created desc;
-```
-
-## Limitations to know
-
-- **No retry logic** — failed requests don't automatically retry; design your Edge Functions to be idempotent so you can re-call them safely
-- **Async only** — you can't read the HTTP response inside the same transaction
-- **5s default timeout** — large payloads or slow endpoints may time out
-
-## Cleanup (add via pg_cron)
-
-```sql
-select cron.schedule(
-  'clean-pg-net-log',
-  '0 4 * * *',
-  $$delete from net._http_response where created < now() - interval '7 days'$$
+-- Example payload only: the receiver must authenticate the request.
+select net.http_post(
+  url := 'https://example.com/webhook',
+  headers := '{"Content-Type":"application/json"}'::jsonb,
+  body := jsonb_build_object('event_id', gen_random_uuid())
 );
+
+select id, status_code, timed_out, error_msg, created
+from net._http_response
+order by created desc limit 20;
 ```
 
-## Deep reference
+`method`, `url` and `response_status` are not response-table columns. Track the returned ID and your own event identifier when correlation is needed. Response retention is bounded by pg_net configuration; it is not a permanent audit log. Check timeout and HTTP status, and use idempotent receivers for retries.
 
-Status monitoring, GET requests, production patterns → [supabase-postgres-best-practices: ext-pg-net](../../supabase-postgres-best-practices/rules/ext-pg-net.md).
+Store outbound credentials in the project's supported secret system such as Supabase Vault; restrict access to decrypted secrets. Do not place service-role keys in migrations or database settings. Match the receiving function's authentication contract—new Supabase secret API keys are not user JWTs.
+
+Keep triggers lightweight. Prefer a transactional outbox insert over an external side effect in signup logic, use unique function/trigger names and a fixed search_path for privileged functions, and revoke public execution where applicable. See [queues](queues.md) and [cron](pg-cron.md).
+
+## Sources
+
+Reviewed 2026-10-20: [pg_net](https://supabase.com/docs/guides/database/extensions/pg_net), [scheduled function calls](https://supabase.com/docs/guides/functions/schedule-functions).

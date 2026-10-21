@@ -1,5 +1,5 @@
 ---
-title: Autovacuum tuning — prevent table bloat and stat staleness
+title: "Autovacuum tuning — prevent table bloat and stat staleness"
 impact: MEDIUM
 impactDescription: "Default autovacuum settings are tuned for small tables; high-write tables accumulate bloat and stale planner stats that cause query regressions"
 tags: monitoring, postgres, autovacuum, performance, maintenance

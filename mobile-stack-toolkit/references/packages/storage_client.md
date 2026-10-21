@@ -1,5 +1,5 @@
 ---
-title: storage_client 2.5.6 — Supabase Storage Dart client
+title: "storage_client 2.5.6 — Supabase Storage Dart client"
 impact: MEDIUM
 impactDescription: "Low-level Supabase Storage client; upload, download, signed URLs, bucket management"
 tags: dart, supabase, storage, uploads
@@ -7,7 +7,7 @@ tags: dart, supabase, storage, uploads
 
 # storage_client — Supabase Storage Dart client
 
-**Version:** 2.5.6  
+**Historical example baseline:** 2.5.6   — resolve a compatible installed version before using these snippets.
 **Platforms:** all Dart platforms
 
 ```yaml
@@ -107,7 +107,7 @@ final List<FileObject> files = await client.from('my-bucket').list(
 
 for (final file in files) {
   print(file.name);
-  print(file.metadata?.size);
+  print(file.metadata?['size']);
   print(file.createdAt);
 }
 ```
@@ -164,7 +164,6 @@ const FileOptions(
   upsert: true,           // overwrite existing file (default: false → throws on conflict)
   contentType: 'image/jpeg',
   cacheControl: '3600',   // Cache-Control header in seconds
-  duplex: 'half',         // for streaming uploads
 )
 ```
 

@@ -1,5 +1,5 @@
 ---
-title: Schema design: profiles, subscriptions, feature tables
+title: "Schema design: profiles, subscriptions, feature tables"
 impact: HIGH
 impactDescription: "Correct table shape halves RLS complexity and makes RevenueCat webhooks and AI feature tables trivial to wire"
 tags: supabase, postgres, schema, migrations, rls
@@ -43,20 +43,24 @@ This table is written **only** by the RevenueCat webhook (an Edge Function), nev
 
 ```sql
 create table public.subscriptions (
-  user_id uuid primary key references auth.users(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
   rc_app_user_id text,                 -- RevenueCat App User ID (align with auth uid)
-  entitlement text,                    -- e.g. 'pro'
+  entitlement text not null,           -- e.g. 'pro'
   is_active boolean not null default false,
   product_id text,
   store text,                          -- 'app_store' | 'play_store'
-  current_period_end timestamptz,
-  updated_at timestamptz not null default now()
+  current_period_end timestamptz,       -- effective expiry incl. verified grace; null for verified lifetime
+  verified_at timestamptz not null,    -- last successful server reconciliation
+  updated_at timestamptz not null default now(),
+  primary key (user_id, entitlement)
 );
 alter table public.subscriptions enable row level security;
--- SELECT-own policy for the client (read-only); writes happen via service key in the webhook.
+create policy "read own entitlements" on public.subscriptions
+  for select to authenticated using (user_id = (select auth.uid()));
+revoke insert, update, delete on public.subscriptions from anon, authenticated;
 ```
 
-Key decision: **align RevenueCat's App User ID with the Supabase auth uid** (call `Purchases.logIn(session.user.id)`). That makes the webhook a trivial upsert keyed by `user_id`. Details: [../monetization/webhooks-supabase.md](../monetization/webhooks-supabase.md).
+Key decision: **align RevenueCat's App User ID with the Supabase auth uid** (call `Purchases.logIn(session.user.id)`). Resolve aliases/transfers and reconcile server state per entitlement; a webhook ID is not always an auth UUID. Details: [../monetization/webhooks-supabase.md](../monetization/webhooks-supabase.md).
 
 ## Feature tables — the owner pattern
 
@@ -86,15 +90,4 @@ create index on public.items (user_id);   -- RLS filters by user_id; index it
 
 ## AI quota tables
 
-For per-user rate limiting, a tiny table the AI Edge Function reads/increments:
-
-```sql
-create table public.usage_counters (
-  user_id uuid references auth.users(id) on delete cascade,
-  day date not null default current_date,
-  ai_calls int not null default 0,
-  primary key (user_id, day)
-);
-```
-
-See [../ai/guardrails.md](../ai/guardrails.md) for the increment-and-check logic.
+Use the [quota migration](../../assets/sql/ai-quota.sql) and [guardrails](../ai/guardrails.md). The table and RPC are server-owned; clients must not set another user's counter or select their own quota limit.

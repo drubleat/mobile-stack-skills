@@ -1,187 +1,47 @@
 ---
-title: Flutter project setup: structure, build flavors, Riverpod
+title: "Flutter setup and compatible dependencies"
 impact: HIGH
-impactDescription: "flutter_riverpod 3.x requires ConsumerWidget; build flavors are required before the first store submission"
-tags: flutter, setup, riverpod, project-structure, flavors
+impactDescription: "Avoid incompatible APIs and unsafe mobile integration defaults"
+tags: mobile, integration, correctness
 ---
 
-# Flutter project setup: structure, build flavors, Riverpod
+# Flutter setup and compatible dependencies
 
-## Create and structure the project
+Inspect `flutter --version`, `pubspec.yaml`, `pubspec.lock`, and platform deployment targets. Preserve the existing state management and folder layout. For a new app:
 
 ```bash
 flutter create my_app --org com.yourcompany --platforms ios,android
 cd my_app
+flutter pub add flutter_riverpod go_router
+flutter pub get
+flutter analyze
+flutter test
 ```
 
-Recommended folder structure:
+Add only integrations the app needs. Use the resolver rather than pasting a mixed-major bundle. If using code generation, install mutually compatible `riverpod_annotation`/`riverpod_generator`, or `freezed_annotation`/`freezed` plus `build_runner`; inspect their constraints and commit the application lockfile. Riverpod code generation is optional.
 
-```
-lib/
-  main.dart              # entry point
-  app.dart               # MaterialApp / CupertinoApp + router
-  core/
-    theme/               # colors, typography, ThemeData
-    utils/               # helpers, extensions
-    constants/           # app-wide constants
-  features/
-    auth/
-      data/              # repositories, data sources
-      domain/            # entities, use cases
-      presentation/      # screens, widgets, providers
-    home/
-    paywall/
-    ai/
-  shared/
-    providers/           # global Riverpod providers
-    widgets/             # shared UI components
-    models/              # shared data models (freezed)
-```
-
-Feature-first structure scales better than layer-first (`data/`, `domain/`, `presentation/` at top level) — features stay cohesive and can be deleted cleanly.
-
-## pubspec.yaml baseline
-
-```yaml
-dependencies:
-  flutter:
-    sdk: flutter
-  flutter_riverpod: ^3.3.2
-  riverpod_annotation: ^2.6.1
-  go_router: ^17.3.0
-  dio: ^5.9.2
-  supabase_flutter: ^2.14.2
-  purchases_flutter: ^10.2.3
-  firebase_core: ^4.10.0
-  firebase_messaging: ^16.3.0
-  firebase_crashlytics: ^5.2.3
-  firebase_analytics: ^11.4.2
-  freezed_annotation: ^2.4.4
-  json_annotation: ^4.9.0
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  build_runner: ^2.4.13
-  freezed: ^3.2.5
-  riverpod_generator: ^2.6.2
-  riverpod_lint: ^2.6.2
-  json_serializable: ^6.9.4
-  flutter_lints: ^5.0.0
-```
-
-## State management: Riverpod 3.x
-
-Riverpod 3.x uses code generation (`@riverpod` annotation). Always use `riverpod_annotation` with `build_runner`.
+## Manual Riverpod provider
 
 ```dart
-// features/auth/presentation/providers/auth_provider.dart
-import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-part 'auth_provider.g.dart';
-
-@riverpod
-Stream<AuthState> authState(Ref ref) {
-  return Supabase.instance.client.auth.onAuthStateChange;
-}
-
-@riverpod
-class UserProfile extends _$UserProfile {
-  @override
-  Future<Map<String, dynamic>?> build() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return null;
-    final data = await Supabase.instance.client
-        .from('profiles')
-        .select()
-        .eq('id', user.id)
-        .single();
-    return data;
-  }
-
-  Future<void> refresh() async {
-    ref.invalidateSelf();
-    await future;
-  }
-}
+final authStateProvider = StreamProvider<AuthState>((ref) =>
+  Supabase.instance.client.auth.onAuthStateChange);
 ```
 
-Generate code: `dart run build_runner watch -d`
+Wrap the app with `ProviderScope`. Handle loading, signed-out, signed-in, and stream-error states separately. Providers of per-user data must watch identity changes and clear stale data on sign-out.
 
-## Immutable models with freezed
+For Freezed 3 use `abstract class` or `sealed class` as appropriate for generated members. Run generation before analysis; do not pair Freezed 3 with a 2.x annotation pin.
 
-```dart
-// shared/models/user_profile.dart
-import 'package:freezed_annotation/freezed_annotation.dart';
+## Initialization and environments
 
-part 'user_profile.freezed.dart';
-part 'user_profile.g.dart';
+Call `WidgetsFlutterBinding.ensureInitialized`, initialize only the services used, set error handlers, then `runApp`. Firebase initialization precedes FlutterFire calls; Supabase initialization precedes its client use. Configure RevenueCat once and synchronize identity on sign-in/account switching.
 
-@freezed
-class UserProfile with _$UserProfile {
-  const factory UserProfile({
-    required String id,
-    required String email,
-    String? displayName,
-    @Default('free') String plan,
-  }) = _UserProfile;
+`--dart-define` values are compiled into the app and are not secret storage. Use them for public endpoints and client keys. Native flavors configure separate bundle IDs, signing, icons, and service config; `--dart-define` alone does not create native flavors. Flavors are useful when needed, not a store submission requirement.
 
-  factory UserProfile.fromJson(Map<String, dynamic> json) =>
-      _$UserProfileFromJson(json);
-}
-```
+Start with `lib/features`, shared clients, and routing only if that structure fits the app. Avoid forcing unused layers. See [navigation](navigation.md), [storage](local-storage.md), and [CI](cicd.md).
 
-## Build flavors (dev / staging / production)
+## Sources
 
-Use `--dart-define` to inject environment variables per flavor. Access them at runtime:
-
-```dart
-const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
-const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
-```
-
-```bash
-# Dev
-flutter run --dart-define=SUPABASE_URL=https://dev.supabase.co \
-            --dart-define=SUPABASE_ANON_KEY=sb_publishable_dev_...
-
-# Production
-flutter build ipa --dart-define=SUPABASE_URL=https://prod.supabase.co \
-                  --dart-define=SUPABASE_ANON_KEY=sb_publishable_prod_...
-```
-
-For more complex flavor setups (separate bundle IDs, app icons, Firebase configs per flavor), use the `flutter_flavorizr` package.
-
-## main.dart initialization order
-
-```dart
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // Firebase first
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
-  PlatformDispatcher.instance.onError = (error, stack) {
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-    return true;
-  };
-
-  // Supabase
-  await Supabase.initialize(
-    url: const String.fromEnvironment('SUPABASE_URL'),
-    anonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
-  );
-
-  // RevenueCat
-  await Purchases.setLogLevel(LogLevel.debug);
-  await Purchases.configure(
-    PurchasesConfiguration(Platform.isIOS ? 'appl_...' : 'goog_...'),
-  );
-
-  runApp(const ProviderScope(child: MyApp()));
-}
-```
-
-`ProviderScope` must wrap the entire app for Riverpod to work. Firebase and Supabase must be initialized before `runApp`.
+Reviewed 2026-10-20: [Flutter packages](https://docs.flutter.dev/packages-and-plugins/using-packages), [Riverpod code generation](https://riverpod.dev/docs/concepts/about_code_generation), [Freezed](https://pub.dev/packages/freezed).

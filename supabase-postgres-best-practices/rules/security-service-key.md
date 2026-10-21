@@ -1,5 +1,5 @@
 ---
-title: Service key discipline — never expose sb_secret_ outside the server
+title: "Service key discipline — never expose sb_secret_ outside the server"
 impact: CRITICAL
 impactDescription: "The service key bypasses all RLS; a single leaked key gives full read/write access to every table for everyone"
 tags: security, keys, service-role, edge-functions, secrets
@@ -14,7 +14,7 @@ sb_publishable_...  → client (Expo app, browser, public env vars)
 sb_secret_...       → server only (Edge Functions, CI, migration scripts)
 ```
 
-The `sb_secret_` (formerly `service_role`) key **bypasses all Row Level Security**. Anyone who holds this key can read, write, and delete every row in every table.
+The `sb_secret_` key (the replacement for the legacy JWT `service_role` key) **bypasses all Row Level Security**. Anyone who holds this key can read, write, and delete every row in every table.
 
 ## Where it must NOT appear
 

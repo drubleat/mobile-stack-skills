@@ -1,7 +1,7 @@
 ---
-title: OpenAI text generation — Responses API
+title: "OpenAI text generation — Responses API"
 impact: HIGH
-impactDescription: "Responses API replaces Chat Completions; using old `messages`/`system` params returns errors on new models"
+impactDescription: "Responses and Chat Completions have different request shapes; choose the API deliberately"
 tags: openai, responses-api, text-generation, streaming
 ---
 
@@ -29,7 +29,7 @@ console.log(response.output_text);  // convenience helper — aggregates all tex
 | `model` | string | `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` |
 | `instructions` | string | System-level behavior, static content only |
 | `input` | string \| array | Simple string, or an Items array for multimodal / multi-turn |
-| `temperature` | 0–2 | 0 for deterministic/structured, 0.7 for creative, default 1 |
+| `temperature` | 0–2 | Model-dependent; omit unless supported by the selected model/reasoning setting |
 | `max_output_tokens` | int | Cap output length; important for cost control |
 | `previous_response_id` | string | Chain responses for multi-turn (see below) |
 | `reasoning` | object | `{ effort: "low"|"medium"|"high" }` — for reasoning-capable models |
@@ -50,20 +50,24 @@ const r2 = await openai.responses.create({
   previous_response_id: r1.id,
 });
 ```
-Pros: no transcript management, better caching. Con: state lives on OpenAI's servers (consider privacy).
+This avoids resending the transcript in application code. Prior context still counts toward input usage; caching and retention depend on the request and service settings.
 
 **Option B — manual Items array (you own the transcript):**
 ```ts
-const messages = [
-  { role: 'user', content: [{ type: 'input_text', text: 'Hello' }] },
-  { role: 'assistant', content: [{ type: 'output_text', text: 'Hi there!' }] },
-  { role: 'user', content: [{ type: 'input_text', text: 'What did I just say?' }] },
-];
-const response = await openai.responses.create({ model, instructions, input: messages });
+const firstInput = [{ role: 'user' as const, content: 'Hello' }];
+const first = await openai.responses.create({ model, instructions, input: firstInput, store: false });
+const response = await openai.responses.create({
+  model, instructions, store: false,
+  input: [
+    ...firstInput,
+    ...first.output, // preserve all output items, not only assistant text
+    { role: 'user', content: 'What did I just say?' },
+  ],
+});
 ```
 Pros: full control, works with other context (images, files) in the same array.
 
-## Structured output (guaranteed JSON)
+## Schema-constrained structured output
 
 ```ts
 const response = await openai.responses.create({
@@ -88,10 +92,14 @@ const response = await openai.responses.create({
     },
   },
 });
-const meal = JSON.parse(response.output_text);
+if (response.status !== 'completed') throw new Error('Incomplete response');
+const refused = response.output.some(item => item.type === 'message' &&
+  item.content.some(part => part.type === 'refusal'));
+if (refused || !response.output_text) throw new Error('No structured result');
+const meal = JSON.parse(response.output_text); // validate domain constraints next
 ```
 
-`strict: true` enforces the schema; the model will refuse rather than produce invalid JSON. Use `additionalProperties: false` to prevent extra fields.
+`strict: true` constrains successful structured responses; check refusals and incomplete status before parsing. Use `additionalProperties: false` to prevent extra fields.
 
 ## Reasoning models
 
@@ -106,7 +114,7 @@ const response = await openai.responses.create({
 });
 ```
 
-Use `high` for complex analysis/coding, `low` for simple tasks where you pay reasoning token costs. Reasoning tokens are billed separately.
+Use `high` for complex analysis/coding, `low` for simple tasks where you pay reasoning token costs. Reasoning tokens count toward output usage and applicable output-token billing.
 
 ## Response output shape
 
@@ -145,4 +153,10 @@ const r = await openai.responses.create({
 const text = r.output_text;
 ```
 
-Chat Completions still works and isn't going away — migrate at your own pace.
+Check the current API/model lifecycle before migrating; do not change an existing integration solely because this example uses Responses.
+
+## State and privacy boundaries
+
+Map conversation/response IDs to the authenticated user on the server. Do not trust a client-supplied `previous_response_id`. Re-send instructions on each chained call. Manual transcripts do not disable provider storage automatically; configure `store: false` and review applicable retention controls when needed. Handle `incomplete` status, refusals, timeouts, and output limits before parsing structured data.
+
+Reviewed 2026-10-21: [conversation state](https://developers.openai.com/api/docs/guides/conversation-state). Model literals are historical examples; select a supported model from the current catalog.

@@ -1,148 +1,27 @@
 ---
-title: pgvector — semantic search & RAG in Supabase
+title: "pgvector retrieval with ownership and budgets"
 impact: HIGH
-impactDescription: "pgvector eliminates a separate vector database for AI apps; semantic search and RAG features can be built entirely within Supabase with RLS applied to embeddings"
-tags: pgvector, ai, embeddings, vector-search, supabase, rag
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# pgvector: semantic search & RAG in Supabase
+# pgvector retrieval with ownership and budgets
 
-pgvector is enabled by default on all Supabase projects. It lets you store and search vector embeddings in Postgres — same RLS, same client, no separate vector DB.
+Enable the vector extension in the intended project. Store an owner/tenant identifier, content, metadata, embedding and embedding-model/version information. Apply RLS and test cross-user access. Model changes can require re-embedding and a dimension/index migration; do not mix embeddings from incompatible spaces.
 
-## Schema: embeddings table
+Choose a currently supported embedding model and explicitly align dimensions with the column and index type. Standard vector/halfvec index limits differ; a 3072-dimensional embedding cannot simply replace a 1536-dimensional vector in the existing index. Verify installed pgvector capabilities.
 
-```sql
-create extension if not exists vector;
+Embedding ingestion order:
 
-create table documents (
-  id          uuid primary key default gen_random_uuid(),
-  user_id     uuid not null references auth.users(id) on delete cascade,
-  content     text not null,
-  embedding   vector(1536),  -- OpenAI text-embedding-3-small
-  metadata    jsonb not null default '{}',
-  created_at  timestamptz not null default now()
-);
+1. Verify the user and resource ownership before any billable provider call.
+2. Validate and bound content/metadata and reserve usage quota.
+3. Generate embeddings with the configured model/dimensions.
+4. Insert `user_id` from the verified identity alongside content/embedding; check errors and support idempotent retries.
 
-alter table documents enable row level security;
-create policy "user owns docs" on documents
-  for all using (user_id = (select auth.uid()))
-  with check (user_id = (select auth.uid()));
+Search follows the same auth/quota ordering. Use a SECURITY INVOKER RPC with qualified objects, restricted grants, owner/RLS filtering and a bounded match count. Rank with the matching distance operator and index, using a stable tie-breaker where needed. Approximate indexing plus selective filters can reduce recall; measure results and plans on realistic tenant distributions.
 
-create index on documents using hnsw (embedding vector_cosine_ops)
-  with (m = 16, ef_construction = 64);
-```
+RAG retrieves only authorized chunks, bounds context and marks retrieved content as untrusted data. Prompts do not replace access controls. Preserve source IDs for citations and handle missing/low-confidence retrieval without inventing evidence. Never let a user-supplied tenant ID bypass the authenticated tenant scope.
 
-## Embedding dimensions
+## Sources
 
-| Model | Dimension |
-|---|---|
-| OpenAI `text-embedding-3-small` | 1536 |
-| OpenAI `text-embedding-3-large` | 3072 |
-| Gemini `text-embedding-004` | 768 |
-
-## Edge Function: embed and store
-
-```ts
-// supabase/functions/embed-document/index.ts
-import OpenAI from 'npm:openai@4';
-
-const openai = new OpenAI({ apiKey: Deno.env.get('OPENAI_API_KEY') });
-
-Deno.serve(async (req) => {
-  const { content, metadata } = await req.json();
-  const authHeader = req.headers.get('Authorization')!;
-
-  const { data: [{ embedding }] } = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
-    input: content,
-  });
-
-  const userClient = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_ANON_KEY')!,
-    { global: { headers: { Authorization: authHeader } } }
-  );
-
-  const { data, error } = await userClient.from('documents').insert({
-    content,
-    embedding: JSON.stringify(embedding),
-    metadata: metadata ?? {},
-  }).select('id').single();
-
-  if (error) return Response.json({ error: error.message }, { status: 500 });
-  return Response.json({ id: data.id });
-});
-```
-
-## Edge Function: semantic search via RPC
-
-```sql
--- Create the search function in a migration
-create or replace function search_documents(
-  query_embedding vector(1536),
-  match_threshold float default 0.75,
-  match_count int default 10
-)
-returns table (id uuid, content text, metadata jsonb, similarity float)
-language sql stable security invoker as $$
-  select d.id, d.content, d.metadata,
-         1 - (d.embedding <=> query_embedding) as similarity
-  from documents d
-  where d.user_id = (select auth.uid())
-    and 1 - (d.embedding <=> query_embedding) > match_threshold
-  order by d.embedding <=> query_embedding
-  limit match_count;
-$$;
-```
-
-```ts
-// Search Edge Function
-Deno.serve(async (req) => {
-  const { query } = await req.json();
-
-  // 1. Embed the query
-  const { data: [{ embedding }] } = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
-    input: query,
-  });
-
-  // 2. Search via RPC (RLS applied — user sees own docs only)
-  const { data: results } = await userClient.rpc('search_documents', {
-    query_embedding: embedding,
-    match_threshold: 0.75,
-    match_count: 5,
-  });
-
-  return Response.json({ results });
-});
-```
-
-## Mobile client: call search
-
-```ts
-// React Native
-const search = async (query: string) => {
-  const { data } = await supabase.functions.invoke('search-documents', {
-    body: { query },
-  });
-  return data.results;
-};
-```
-
-## RAG pattern (search → prompt)
-
-```ts
-// In Edge Function: retrieve context, build prompt, call LLM
-const results = await searchDocuments(queryEmbedding);
-const context = results.map(r => r.content).join('\n\n');
-
-const response = await openai.responses.create({
-  model: 'gpt-5.4-mini',
-  instructions: 'Answer using only the provided context.',
-  input: `Context:\n${context}\n\nQuestion: ${query}`,
-});
-```
-
-## Deep reference
-
-For SQL-level detail on HNSW vs IVFFlat indexes, hybrid search (vector + keyword), and dimension choices → [supabase-postgres-best-practices: ext-pgvector](../../supabase-postgres-best-practices/rules/ext-pgvector.md).
+Reviewed 2026-10-20: [Supabase vector](https://supabase.com/docs/guides/database/extensions/pgvector), [pgvector index limits](https://github.com/pgvector/pgvector).

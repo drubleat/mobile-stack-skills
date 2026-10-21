@@ -1,5 +1,5 @@
 ---
-title: supabase_flutter: auth + database
+title: "supabase_flutter: auth + database"
 impact: HIGH
 impactDescription: "supabase_flutter 2.14.x initializes in main(); auth state stream drives route guards"
 tags: flutter, supabase, auth, database, realtime
@@ -33,37 +33,11 @@ await supabase.auth.signInWithOtp(email: email);
 await supabase.auth.verifyOTP(type: OtpType.email, token: otpCode, email: email);
 ```
 
-### Google Sign-In
+### Native Google/Apple sign-in
 
-```dart
-import 'package:google_sign_in/google_sign_in.dart';
+Follow the installed Google Sign-In major version (v7 uses an initialized singleton and `authenticate` on supported native platforms). Send the resulting ID token to `signInWithIdToken`; request provider access tokens only as required by the provider integration. Apple native credentials need a fresh raw nonce, its SHA-256 hash in the Apple request, and the raw nonce in Supabase's verification call. Handle cancellation and null tokens. Configure providers and redirect/native IDs first.
 
-final googleUser = await GoogleSignIn(serverClientId: 'YOUR_WEB_CLIENT_ID').signIn();
-final googleAuth = await googleUser!.authentication;
-
-await supabase.auth.signInWithIdToken(
-  provider: OAuthProvider.google,
-  idToken: googleAuth.idToken!,
-  accessToken: googleAuth.accessToken,
-);
-```
-
-### Apple Sign-In
-
-```dart
-import 'package:sign_in_with_apple/sign_in_with_apple.dart';
-
-final credential = await SignInWithApple.getAppleIDCredential(
-  scopes: [AppleIDAuthorizationScopes.email, AppleIDAuthorizationScopes.fullName],
-);
-
-await supabase.auth.signInWithIdToken(
-  provider: OAuthProvider.apple,
-  idToken: credential.identityToken!,
-);
-```
-
-`signInWithIdToken` is the correct method for native mobile sign-in on both platforms — avoids web OAuth redirects.
+See [official Supabase ID-token examples](https://supabase.com/docs/reference/dart/auth-signinwithidtoken). Do not mix v6 `GoogleSignIn().signIn()` with v7 dependencies.
 
 ### Auth state listener
 
@@ -162,6 +136,7 @@ Stream<AuthState> authState(Ref ref) =>
 @riverpod
 Future<Map<String, dynamic>?> profile(Ref ref) async {
   final client = ref.watch(supabaseProvider);
+  ref.watch(authStateProvider); // invalidate when the session changes
   final user = client.auth.currentUser;
   if (user == null) return null;
 
@@ -174,7 +149,7 @@ Future<Map<String, dynamic>?> profile(Ref ref) async {
 ```dart
 final response = await supabase.functions.invoke(
   'ai-proxy',
-  body: {'prompt': userMessage},
+  body: {'userMessage': userMessage},
   headers: {'Content-Type': 'application/json'},
 );
 
@@ -184,14 +159,9 @@ if (response.status != 200) {
 final result = response.data as Map<String, dynamic>;
 ```
 
-## Type generation
+## Data models
 
-```bash
-# Generate Dart types from Supabase schema
-npx supabase gen types dart --project-id <ref> > lib/core/types/supabase_types.dart
-```
-
-Note: Dart type generation from Supabase is newer than TypeScript; the output may need manual cleanup for complex schemas.
+Inspect `supabase gen types --help` for supported target languages in the installed CLI. Do not assume a Dart generator exists. Define and validate Dart models from the schema, using the project's chosen serializer when appropriate.
 
 ## Gotchas
 

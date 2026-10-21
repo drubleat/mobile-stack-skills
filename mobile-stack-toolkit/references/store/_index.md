@@ -1,5 +1,5 @@
 ---
-title: Store submission — domain index
+title: "Store submission — domain index"
 impact: MEDIUM-HIGH
 impactDescription: "Routes to App Store Connect, Play Console, ASO assets, permissions, and rejection red flags"
 tags: store, app-store, play-store, index

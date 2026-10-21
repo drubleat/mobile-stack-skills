@@ -1,139 +1,33 @@
 ---
-title: Firebase App Check — protect backend resources from unauthorized clients
-impact: CRITICAL
-impactDescription: "Without App Check, anyone with your Firebase config can hit your Firestore, Storage, and AI Logic quota; App Check restricts access to your genuine app binaries"
-tags: firebase, app-check, security, ios, android, flutter
+title: "Firebase App Check"
+impact: HIGH
+impactDescription: "Avoid incompatible APIs and unsafe mobile integration defaults"
+tags: mobile, integration, correctness
 ---
 
 # Firebase App Check
 
-App Check verifies that requests come from your legitimate app binary, not a script, emulator exploit, or stolen config. It is **required** for Firebase AI Logic and strongly recommended for any production app using Firestore, Storage, or Cloud Functions.
+App Check adds app/device attestation to supported backend services. It complements user authentication and Security Rules; it does not prove a human is trusted or prevent all abuse. Requests without valid tokens are rejected only for services with enforcement enabled.
 
-## How it works
-
-App Check uses platform attestation providers:
-- **iOS**: App Attest (production) / DeviceCheck
-- **Android**: Play Integrity (production) / SafetyNet (legacy)
-- **Debug**: Fake debug token for local development
-
-Each request from the app carries an App Check token. Firebase backend services verify this token server-side. Requests without a valid token are rejected.
-
-## Setup — React Native (`@react-native-firebase/app-check`)
-
-```bash
-npx expo install @react-native-firebase/app-check
-```
-
-### app.config.ts
+Initialize the Firebase app first, then configure App Check before protected service calls. For native React Native Firebase the default app is initialized by native configuration; web/secondary apps may need explicit initialization. Use modular APIs for modern RN Firebase:
 
 ```ts
-plugins: [
-  ['@react-native-firebase/app', {}],
-  ['@react-native-firebase/app-check', {
-    // iOS — App Attest is the production provider (iOS 14+)
-    // Android — Play Integrity is the production provider
-  }],
-]
+import { getApp } from '@react-native-firebase/app';
+import { initializeAppCheck, ReactNativeFirebaseAppCheckProvider } from '@react-native-firebase/app-check';
+const provider = new ReactNativeFirebaseAppCheckProvider();
+provider.configure({
+  android: { provider: __DEV__ ? 'debug' : 'playIntegrity' },
+  apple: { provider: __DEV__ ? 'debug' : 'appAttestWithDeviceCheckFallback' },
+});
+await initializeAppCheck(getApp(), { provider, isTokenAutoRefreshEnabled: true });
 ```
 
-### Initialize in app entry point
+Follow the installed SDK's debug-token setup, register the development token, and treat that token as a secret. Never ship it in a release bundle or a shared `EXPO_PUBLIC_*` value. Do not log live attestation tokens.
 
-```ts
-import appCheck from '@react-native-firebase/app-check';
-import { Platform } from 'react-native';
+For Flutter initialize Firebase, then activate `FirebaseAppCheck.instance` using the providers supported by the installed version. Select production providers according to platform support, signing, distribution channel, and fallback needs. SafetyNet is retired; use Play Integrity on Android.
 
-// Call before any Firebase service usage
-async function initAppCheck() {
-  const provider = appCheck().newReactNativeFirebaseAppCheckProvider();
-  
-  provider.configure({
-    apple: {
-      provider: __DEV__ ? 'debug' : 'appAttest',
-      debugToken: __DEV__ ? process.env.EXPO_PUBLIC_APP_CHECK_DEBUG_TOKEN : undefined,
-    },
-    android: {
-      provider: __DEV__ ? 'debug' : 'playIntegrity',
-      debugToken: __DEV__ ? process.env.EXPO_PUBLIC_APP_CHECK_DEBUG_TOKEN : undefined,
-    },
-  });
+Inspect attestation metrics before enabling enforcement so existing valid builds are not locked out. Test production-signing/device paths, not only debug tokens. Configure custom backend verification explicitly; attaching a header alone does not verify it. See [AI Logic](ai-logic.md) for the managed AI path.
 
-  await appCheck().initializeAppCheck({
-    provider,
-    isTokenAutoRefreshEnabled: true,
-  });
-}
-```
+## Sources
 
-Call `initAppCheck()` before `Firebase.initializeApp()` or right after in your root component.
-
-## Setup — Flutter (`firebase_app_check`)
-
-```yaml
-# pubspec.yaml
-dependencies:
-  firebase_app_check: ^0.3.2+2
-```
-
-```dart
-// main.dart — after Firebase.initializeApp()
-await FirebaseAppCheck.instance.activate(
-  androidProvider: kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
-  appleProvider: kDebugMode ? AppleProvider.debug : AppleProvider.appAttest,
-);
-```
-
-## Debug tokens (local dev)
-
-Generate a debug token in Firebase Console → App Check → Apps → (your app) → Manage debug tokens. Add it to your `.env.local`:
-
-```
-EXPO_PUBLIC_APP_CHECK_DEBUG_TOKEN=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-```
-
-Never commit debug tokens or use them in production builds.
-
-## Enforce App Check on Firebase services
-
-After registering your apps, enable enforcement in Firebase Console → App Check → Apps → Enable enforcement for each service (Firestore, Storage, Functions, AI Logic).
-
-**Start in monitoring mode first** (tracks which traffic would be blocked) → after confirming your app passes, switch to enforced mode.
-
-```
-Monitoring mode → observe for 24-48 hours → enable enforcement
-```
-
-## iOS: register App Attest capability
-
-In Xcode → Signing & Capabilities → add **App Attest**. Without this, App Attest attestation fails silently in production.
-
-Also add to your `app.config.ts` entitlements:
-
-```ts
-ios: {
-  entitlements: {
-    'com.apple.developer.devicecheck.appattest-environment': 'production',
-  },
-}
-```
-
-## Android: Play Integrity setup
-
-Play Integrity requires your app to be published on Play Console (even in internal testing track). The SHA-256 fingerprint of your signing key must be registered in Firebase Console → Project Settings → Your apps → Android → SHA certificate fingerprints.
-
-```bash
-# Get your EAS release key fingerprint
-eas credentials --platform android
-```
-
-## Verify App Check is working
-
-```ts
-const token = await appCheck().getToken(/* forceRefresh */ false);
-console.log('App Check token:', token.token ? 'obtained' : 'failed');
-```
-
-## App Check + Firebase AI Logic (required pairing)
-
-Firebase AI Logic **requires** App Check in production. The `firebase_ai` / `@react-native-firebase/firebase-ai` packages check for an App Check token before making Gemini API calls. Without it you get `PERMISSION_DENIED` errors when enforcement is enabled.
-
-See [ai-logic.md](ai-logic.md) for the complete Firebase AI Logic setup.
+Reviewed 2026-10-20: [RN Firebase App Check](https://rnfirebase.io/app-check/usage), [Firebase App Check](https://firebase.google.com/docs/app-check).

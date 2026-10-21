@@ -1,7 +1,7 @@
 ---
-title: RLS query performance — always wrap auth functions in select
+title: "RLS query performance — cache row-independent auth helpers"
 impact: CRITICAL
-impactDescription: "Bare auth.uid() in RLS policies is re-evaluated per row; (select auth.uid()) evaluates once — can be 100x faster on large tables"
+impactDescription: "A scalar subquery can avoid repeated row-independent auth evaluation; verify the actual query plan"
 tags: rls, performance, postgres, auth, query
 ---
 
@@ -10,16 +10,16 @@ tags: rls, performance, postgres, auth, query
 ## The rule
 
 ```sql
--- ❌ WRONG — re-evaluated for every row scanned
+-- Baseline — may repeatedly evaluate the auth helper
 create policy "owner access" on messages
   for select using (user_id = auth.uid());
 
--- ✅ CORRECT — evaluated once per query, cached
+-- Candidate optimization — check for InitPlan in EXPLAIN
 create policy "owner access" on messages
   for select using (user_id = (select auth.uid()));
 ```
 
-The parenthesized `(select auth.uid())` is a scalar subquery. Postgres evaluates it **once** and treats the result as a constant throughout the query. Without it, `auth.uid()` is called as a volatile function per row — on a 100k-row table this can mean a 100x performance difference.
+The uncorrelated `(select auth.uid())` subquery allows PostgreSQL to use an InitPlan for a row-independent value. This can reduce repeated helper work. Measure the plan and timing under the real application role; there is no universal speedup. Do not apply this caching pattern to a helper whose result depends on the current row.
 
 ## Apply to all auth functions
 
@@ -27,7 +27,7 @@ The parenthesized `(select auth.uid())` is a scalar subquery. Postgres evaluates
 -- All of these should be wrapped:
 (select auth.uid())
 (select auth.jwt() ->> 'role')
-(select auth.jwt() -> 'user_metadata' ->> 'org_id')
+(select auth.jwt() -> 'app_metadata' ->> 'org_id')
 ```
 
 ## Verify with EXPLAIN
@@ -37,7 +37,7 @@ explain analyze
 select * from messages where user_id = (select auth.uid());
 ```
 
-Look for `InitPlan` in the plan — this confirms the subquery is evaluated once. A bare `auth.uid()` shows as a `FunctionScan` inline with each row.
+Look for `InitPlan` in the plan — this confirms the subquery is evaluated once. Do not infer a specific plan node from the SQL alone; compare actual plans and timings under an application role.
 
 ## Index alignment
 
@@ -48,4 +48,6 @@ Wrap isn't enough if the column lacks an index:
 create index on messages(user_id);
 ```
 
-With the wrapped `(select auth.uid())` and this index, Postgres does an index scan for the authenticated user's rows rather than a sequential scan of the whole table.
+With the wrapped `(select auth.uid())` and this index, Postgres can choose an index scan for the authenticated user's rows rather than a sequential scan of the whole table.
+
+Reviewed 2026-10-21 against [Supabase RLS performance guidance](https://supabase.com/docs/guides/database/postgres/row-level-security).

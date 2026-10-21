@@ -1,136 +1,40 @@
 ---
-title: EAS Workflows: native CI + auto-versioning
+title: "EAS Workflows: build identity and versioning"
 impact: HIGH
-impactDescription: "EAS Workflows replaces GitHub Actions for native builds; YAML-driven version bumps eliminate manual version management"
-tags: cicd, eas, expo, workflows, versioning
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# EAS Workflows: native CI + auto-versioning
+# EAS Workflows: build identity and versioning
 
-EAS Workflows is Expo's built-in CI — YAML files in `.eas/workflows/` that trigger EAS Builds and EAS Updates without needing GitHub Actions or a third-party CI. If you're already on EAS, start here before adding GitHub Actions.
-
-## Workflow file location
-
-```
-.eas/
-  workflows/
-    build-and-submit.yml   # production build + submit
-    pr-preview.yml         # OTA preview on PRs
-```
-
-## Build + submit on merge to main
+Store workflow YAML under `.eas/workflows/`. A submit job must consume the ID emitted by its build job:
 
 ```yaml
-# .eas/workflows/build-and-submit.yml
-name: Build and submit to stores
-
+name: Build and submit iOS
 on:
-  push:
-    branches: [main]
-
+  workflow_dispatch:
 jobs:
-  build-ios:
+  build_ios:
     type: build
     params:
       platform: ios
       profile: production
-
-  build-android:
-    type: build
-    params:
-      platform: android
-      profile: production
-    needs: [build-ios]         # optional: run sequentially to control concurrency
-
-  submit-ios:
+  submit_ios:
+    needs: [build_ios]
     type: submit
     params:
-      platform: ios
+      build_id: ${{ needs.build_ios.outputs.build_id }}
       profile: production
-    needs: [build-ios]
-
-  submit-android:
-    type: submit
-    params:
-      platform: android
-      profile: production
-    needs: [build-android]
 ```
 
-## OTA preview on PRs
+Configure signing and the submit profile first. Android uses a separate build job with `platform: android` and its own resulting ID. Store submission is a separate step from store review/release.
 
-```yaml
-# .eas/workflows/pr-preview.yml
-name: PR preview update
+With remote app-version management, configure `cli.appVersionSource: remote` in eas.json and `build.production.autoIncrement: true`. Initialize/synchronize counters intentionally; do not assume every build reads the store's latest number. Keep the user-visible version under release control.
 
-on:
-  pull_request:
-    branches: [main]
+Select a runtime-version strategy, such as `fingerprint`, and validate compatibility against the installed binary. Fingerprint is a configured policy, not an assertion that all projects already use it. Branches hold updates; channels route installed builds to branches. A PR branch update is not automatically visible to a production binary.
 
-jobs:
-  update:
-    type: update
-    params:
-      branch: pr-${{ github.event.pull_request.number }}
-      message: 'PR #${{ github.event.pull_request.number }} preview'
-```
+Use custom jobs for lint, unit tests and deployment commands when suitable; EAS Workflows is not restricted to native builds. Check the documented EAS expression contexts before copying GitHub Actions expressions. Run with `eas workflow:run build-and-submit.yml` after reviewing the target and credentials.
 
-This pushes a JS-only OTA update to a per-PR channel. Reviewers can load it on a dev build without waiting for a native build.
+## Sources
 
-## Auto-increment build numbers
-
-EAS can auto-increment `buildNumber` (iOS) and `versionCode` (Android) on every build, so you never touch them manually:
-
-```json
-// eas.json
-{
-  "build": {
-    "production": {
-      "autoIncrement": true
-    }
-  }
-}
-```
-
-With `autoIncrement: true`, EAS reads the current value from App Store Connect / Play Console (or from its own counter) and increments it. You only manage `version` (semver) in `app.config.ts`; EAS handles the build counter.
-
-```ts
-// app.config.ts — manage only the user-visible version
-export default {
-  version: '1.2.0',
-  // ios.buildNumber and android.versionCode intentionally omitted — EAS auto-sets them
-}
-```
-
-## Runtime version strategy
-
-Set a fixed `runtimeVersion` policy in `app.json` so OTA updates only land on compatible builds:
-
-```json
-{
-  "expo": {
-    "runtimeVersion": {
-      "policy": "fingerprint"
-    }
-  }
-}
-```
-
-`fingerprint` mode: EAS computes a hash of all native code. OTA updates only go to builds with a matching fingerprint. This is the modern default — it prevents JS updates from landing on incompatible native builds.
-
-## Triggering workflows
-
-Three ways to trigger:
-1. **Git push** — via `on.push` in the YAML (shown above).
-2. **EAS dashboard** — manual trigger from expo.dev.
-3. **CLI**: `eas workflow:run build-and-submit.yml`
-
-## When to add GitHub Actions instead
-
-EAS Workflows handles build + submit well. Add GitHub Actions when you need:
-- Supabase migration deployment before the native build.
-- Linting, type-checking, or unit tests as a PR gate.
-- Custom notification (Slack, email) when a build fails.
-- Multi-repo orchestration.
-
-EAS Workflows + GitHub Actions complement each other — see [github-actions.md](github-actions.md).
+Reviewed 2026-10-20: [pre-packaged jobs](https://docs.expo.dev/eas/workflows/pre-packaged-jobs/), [app versions](https://docs.expo.dev/build-reference/app-versions/).

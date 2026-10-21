@@ -1,5 +1,5 @@
 ---
-title: Monetization — domain index (RevenueCat)
+title: "Monetization — domain index (RevenueCat)"
 impact: MEDIUM-HIGH
 impactDescription: "Routes to SDK integration, entitlement checks, paywalls, webhooks, dashboard setup, and testing"
 tags: revenuecat, monetization, iap, subscriptions, index

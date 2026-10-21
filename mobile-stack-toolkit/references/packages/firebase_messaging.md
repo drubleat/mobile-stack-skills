@@ -1,5 +1,5 @@
 ---
-title: firebase_messaging 16.3.0 — FCM push notifications
+title: "firebase_messaging 16.3.0 — FCM push notifications"
 impact: HIGH
 impactDescription: "Background handler must be top-level function; iOS foreground notifications need explicit display options"
 tags: flutter, firebase, fcm, push, ios, android
@@ -7,7 +7,7 @@ tags: flutter, firebase, fcm, push, ios, android
 
 # firebase_messaging — FCM push notifications
 
-**Version:** 16.3.0  
+**Historical example baseline:** 16.3.0   — resolve a compatible installed version before using these snippets.
 **Platforms:** Android, iOS, macOS, Web
 
 ```yaml
@@ -16,7 +16,7 @@ dependencies:
   firebase_messaging: ^16.3.0
 ```
 
-> For full setup including flutter_local_notifications and APNs config, see [../flutter/push-firebase.md](../flutter/push-firebase.md).
+> Configure Firebase using [setup](../firebase/setup-cli.md) and [APNs](../push/apns-ios.md).
 
 ## Setup: background handler (top-level, before runApp)
 
@@ -58,7 +58,7 @@ final settings = await messaging.requestPermission(
 if (settings.authorizationStatus == AuthorizationStatus.authorized) {
   // Get FCM token
   final token = await messaging.getToken();
-  print('FCM Token: $token');
+  // Store the token for this installation; avoid logging it.
   // Store token in your backend (Supabase, Firestore, etc.)
 }
 
@@ -91,7 +91,7 @@ if (initialMessage != null) {
 
 void _handleNavigationFromMessage(RemoteMessage message) {
   final route = message.data['route'];
-  if (route != null) context.go(route);   // go_router
+  // Validate/map route, queue until auth/router readiness, then deduplicate and navigate.
 }
 ```
 
@@ -128,14 +128,14 @@ await messaging.unsubscribeFromTopic('news');
 
 Send to a topic from your backend:
 ```json
-{ "topic": "news", "notification": { "title": "Breaking" } }
+{ "message": { "topic": "news", "notification": { "title": "Breaking" } } }
 ```
 
 ## APNs token (iOS)
 
 ```dart
 // iOS only — Firebase internally maps APNs → FCM tokens
-// You don't need this unless integrating with APNs directly
+// Wait for a non-null APNs token before dependent FCM API calls on Apple platforms
 final apnsToken = await messaging.getAPNSToken();
 ```
 
@@ -170,7 +170,7 @@ await FlutterLocalNotificationsPlugin()
     ?.createNotificationChannel(channel);
 ```
 
-Specify `android.channelId: 'high_importance'` when sending from your backend.
+Specify `message.android.notification.channel_id: 'high_importance'` when sending from your backend.
 
 ## Gotchas
 
@@ -178,4 +178,6 @@ Specify `android.channelId: 'high_importance'` when sending from your backend.
 - iOS foreground messages: `setForegroundNotificationPresentationOptions` shows the system notification; alternatively use `flutter_local_notifications`. One or the other — not both.
 - `getInitialMessage()` should be called after the widget tree is ready (inside a `StatefulWidget.initState` or after a `WidgetsBinding.instance.addPostFrameCallback`), not at the very start of main.
 - Android 13+ requires `POST_NOTIFICATIONS` runtime permission — `requestPermission()` handles this on Firebase 16.x.
-- iOS: test push notifications on a **real device** — the simulator does not support APNs.
+- iOS: test push notifications on a **real device** — simulator support varies by host/runtime; physical-device release testing remains necessary.
+
+Retain and cancel listeners, detach tokens on logout, and store one token per installation/environment. Topic subscriptions are not a private per-user authorization boundary.

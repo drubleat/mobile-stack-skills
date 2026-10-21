@@ -1,101 +1,48 @@
 ---
-title: RLS policy patterns — USING vs WITH CHECK, multi-role
+title: "RLS policies: existing rows and new values"
 impact: CRITICAL
-impactDescription: "Confusing USING and WITH CHECK leaves insert/update rows unprotected; missing policies on all operations silently allow writes"
-tags: rls, security, postgres, policies, auth
+impactDescription: "Prevent unauthorized access and incorrect state transitions"
+tags: security, correctness
 ---
 
-# RLS policy patterns: USING vs WITH CHECK
+# RLS policies: existing rows and new values
 
-## The distinction
+RLS must be enabled and SQL privileges must permit the operation. With RLS enabled and no applicable policy, ordinary roles are denied. Superusers, BYPASSRLS roles, and normally the table owner bypass it.
 
-| Clause | When evaluated | Controls |
-|---|---|---|
-| `USING` | On **read** (SELECT, DELETE) | Which existing rows are visible / deletable |
-| `WITH CHECK` | On **write** (INSERT, UPDATE) | Which new/modified rows are allowed |
+`USING` checks existing rows for SELECT, UPDATE, and DELETE. `WITH CHECK` checks new values for INSERT and UPDATE. For `FOR ALL` and `FOR UPDATE`, omitting `WITH CHECK` reuses `USING`; it does **not** silently permit arbitrary inserts. Explicit clauses make intent easier to review.
 
 ```sql
--- ❌ Common mistake: USING-only policy doesn't protect inserts
-create policy "user owns row" on messages
-  for all using (user_id = (select auth.uid()));
-
--- A user can insert a message with user_id = someone_else_id
--- because WITH CHECK defaults to the USING expression for UPDATE
--- but for INSERT it defaults to TRUE if no WITH CHECK is specified
--- on a FOR ALL policy... actually this depends on Postgres version.
-
--- ✅ Explicit is always safer
-create policy "select own messages" on messages
-  for select using (user_id = (select auth.uid()));
-
-create policy "insert own messages" on messages
-  for insert with check (user_id = (select auth.uid()));
-
-create policy "update own messages" on messages
-  for update using (user_id = (select auth.uid()))
-             with check (user_id = (select auth.uid()));
-
-create policy "delete own messages" on messages
-  for delete using (user_id = (select auth.uid()));
+alter table public.messages enable row level security;
+create policy "read own" on public.messages for select to authenticated
+  using (user_id = (select auth.uid()));
+create policy "insert own" on public.messages for insert to authenticated
+  with check (user_id = (select auth.uid()));
+create policy "update own" on public.messages for update to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
+create policy "delete own" on public.messages for delete to authenticated
+  using (user_id = (select auth.uid()));
 ```
 
-## Enabling RLS — never forget this
+For business roles use server-controlled claims such as `app_metadata.role`, not the top-level JWT `role` used by PostgREST and never user-editable `user_metadata`. Claims can be stale until the JWT refreshes; immediate revocation requires a database lookup or another server check. Multiple permissive policies combine with OR, so inspect all policies and grants.
+
+Membership subqueries can be appropriate; use a narrowly scoped private SECURITY DEFINER helper only when necessary to avoid recursion or expensive checks. Lock its search path and grants. See [JWT claims](security-auth-uid.md) and [function security](query-functions-rpc.md).
+
+## Verify as actual application roles
+
+Use real fixture UUIDs inside an explicit transaction:
 
 ```sql
-alter table messages enable row level security;
--- Without this line, no policies take effect at all
-```
-
-## Multi-role patterns
-
-### Admin bypass via JWT claim
-
-```sql
-create policy "admins see everything" on messages
-  for select using (
-    (select auth.jwt() ->> 'role') = 'admin'
-    or user_id = (select auth.uid())
-  );
-```
-
-### Team / org membership
-
-```sql
-create policy "team members see project" on project_files
-  for select using (
-    project_id in (
-      select project_id from project_members
-      where user_id = (select auth.uid())
-    )
-  );
-```
-
-### Public read, owner write
-
-```sql
-create policy "public read" on posts
-  for select using (published = true or user_id = (select auth.uid()));
-
-create policy "owner insert" on posts
-  for insert with check (user_id = (select auth.uid()));
-
-create policy "owner update" on posts
-  for update using (user_id = (select auth.uid()))
-             with check (user_id = (select auth.uid()));
-```
-
-## Test policies with SET ROLE
-
-```sql
--- Simulate a specific user
+begin;
 set local role authenticated;
-set local "request.jwt.claims" to '{"sub": "user-uuid-here", "role": "authenticated"}';
-select * from messages; -- should only return that user's rows
+select set_config('request.jwt.claims',
+  '{"sub":"00000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+select * from public.messages;
+rollback;
 ```
 
-## Checklist
+Test own-row access, other-user access, owner-changing updates, forged role claims, missing JWT, and no-policy denial. Expected write errors need savepoints or independent transactions. Tests run as the owner/service role do not validate RLS.
 
-- [ ] `enable row level security` on every public table
-- [ ] All four operations (SELECT / INSERT / UPDATE / DELETE) have explicit policies or are intentionally blocked
-- [ ] `auth.uid()` is always wrapped in `(select auth.uid())`
-- [ ] No `service_role` key usage from the client
+## Sources
+
+Reviewed 2026-10-20: [PostgreSQL CREATE POLICY](https://www.postgresql.org/docs/current/sql-createpolicy.html), [Supabase RLS](https://supabase.com/docs/guides/database/postgres/row-level-security).

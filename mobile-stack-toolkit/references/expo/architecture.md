@@ -1,5 +1,5 @@
 ---
-title: App architecture: state, navigation, auth gating
+title: "App architecture: state, navigation, auth gating"
 impact: HIGH
 impactDescription: "Auth gate pattern prevents authenticated screens flashing before redirect; Zustand + React Query is the minimal correct stack"
 tags: expo, architecture, state, navigation, auth
@@ -34,7 +34,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export const supabase = createClient(
   process.env.EXPO_PUBLIC_SUPABASE_URL!,
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
-  { auth: { storage: AsyncStorage, persistSession: true, autoRefreshToken: true } },
+  { auth: { storage: AsyncStorage, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } },
 );
 ```
 
@@ -58,7 +58,7 @@ export default function RootLayout() {
 
 function RootNavigator() {
   const { session, loading } = useAuth();
-  if (loading) return <SplashScreen />;
+  if (loading) return <LoadingScreen />; // app-owned component; expo-splash-screen is an API
   return (
     <Stack>
       <Stack.Protected guard={!!session}>

@@ -1,5 +1,5 @@
 ---
-title: RevenueCat dashboard setup
+title: "RevenueCat dashboard setup"
 impact: MEDIUM-HIGH
 impactDescription: "Products and entitlements must be created in RC dashboard before SDK init; missing this step causes empty offerings"
 tags: revenuecat, dashboard, products, entitlements

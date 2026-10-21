@@ -1,124 +1,36 @@
 ---
-title: Gemini text generation
+title: "Gemini text generation"
 impact: HIGH
-impactDescription: "thinking_level string enum replaces numeric thinking_budget; temperature/top_p/top_k removed in 3.5"
-tags: gemini, text-generation, thinking, streaming
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
 # Gemini text generation
 
-## Basic request
+Use `@google/genai` on a trusted server. Configure a supported model server-side; inspect the model's capabilities instead of assuming all Gemini versions accept the same thinking and sampling settings.
 
 ```ts
 import { GoogleGenAI } from 'npm:@google/genai';
 const ai = new GoogleGenAI({ apiKey: Deno.env.get('GEMINI_API_KEY') });
-
 const response = await ai.models.generateContent({
-  model: 'gemini-3.5-flash',
-  contents: 'Explain how neural networks work in 2 sentences.',
-});
-console.log(response.text);   // convenience shorthand
-```
-
-## System instruction
-
-```ts
-const response = await ai.models.generateContent({
-  model: 'gemini-3.5-flash',
+  model: Deno.env.get('GEMINI_TEXT_MODEL')!,
+  contents: userMessage, // previously validated and bounded
   config: {
-    systemInstruction: 'You are a nutrition coach. Reply concisely in the same language the user writes.',
+    systemInstruction: 'Answer concisely using the supplied information.',
+    maxOutputTokens: 1024,
   },
-  contents: userMessage,
 });
+if (!response.text) throw new Error('No text returned');
 ```
 
-The `config.systemInstruction` is Gemini's equivalent of the OpenAI `instructions` param — static, high-priority guidance that stays out of the user turn.
+Thinking settings belong under `config.thinkingConfig`. Where the selected model supports it, use `thinkingLevel` with the SDK enum; other models use `thinkingBudget`. Do not pass REST-style `thinking_level` at the root of the JavaScript config. Supported levels and sampling behavior are model-specific. Output budgets can include reasoning overhead.
 
-## Multi-turn conversations
+For structured extraction, use `responseMimeType: 'application/json'` plus the supported `responseSchema` or `responseJsonSchema` form. Check missing/blocked/truncated responses before parsing, then validate domain constraints locally. A schema does not establish truth or authorize a write.
 
-Use the stateful `chat` helper:
+`ai.chats.create({model, config, history})` and `chat.sendMessage({message})` retain chat history in memory. Persist only necessary turns under authenticated ownership; bound history and preserve complete model content when tools are involved. See [tools](tools.md).
 
-```ts
-const chat = ai.chats.create({
-  model: 'gemini-3.5-flash',
-  config: { systemInstruction: 'You are a helpful assistant.' },
-  history: [],   // inject prior turns here to resume a saved session
-});
+For streaming, iterate `await ai.models.generateContentStream(...)`, forwarding text only through the application's [stream contract](../streaming.md). Inspect terminal candidate status; a nonempty partial answer does not establish successful completion.
 
-const r1 = await chat.sendMessage({ message: 'Hello' });
-const r2 = await chat.sendMessage({ message: 'What did I just say?' });
-console.log(r2.text);
-```
+## Sources
 
-The chat object accumulates history internally. To persist across app sessions, serialize `chat.getHistory()` to your DB and pass it back in `history` on next init.
-
-## Key config parameters
-
-```ts
-config: {
-  systemInstruction: string,
-  maxOutputTokens: 1024,        // cap output; critical for cost control
-  thinking_level: 'medium',     // Gemini 3.5 only — 'minimal'|'low'|'medium'|'high'
-  // temperature / top_p / top_k — REMOVED in Gemini 3.5, don't use
-}
-```
-
-### Thinking (Gemini 3.5 Flash specific)
-
-Gemini 3.5 has an internal reasoning step before answering. Control the depth:
-
-```ts
-config: { thinking_level: 'minimal' }   // quick, cheap
-config: { thinking_level: 'high' }      // deep, expensive
-```
-
-`thinking_level` is a **string enum** (not a numeric budget like in Gemini 2.5). Setting `thinking_budget` here will be ignored or error — remove it if migrating.
-
-Thinking costs extra tokens. Use `'minimal'` or `'low'` for simple tasks (classification, extraction); `'medium'`/`'high'` for complex analysis or coding. For tasks where you're using structured output or function calling, the model often performs better with some thinking enabled.
-
-## Structured output (JSON)
-
-```ts
-import { Type } from 'npm:@google/genai';
-
-const response = await ai.models.generateContent({
-  model: 'gemini-3.5-flash',
-  config: {
-    responseMimeType: 'application/json',
-    responseSchema: {
-      type: Type.OBJECT,
-      properties: {
-        food_name:  { type: Type.STRING },
-        calories:   { type: Type.NUMBER },
-        meal_type:  { type: Type.STRING, enum: ['breakfast','lunch','dinner','snack'] },
-      },
-      required: ['food_name', 'calories', 'meal_type'],
-    },
-  },
-  contents: `Extract meal data from: "${userMessage}"`,
-});
-const meal = JSON.parse(response.text);
-```
-
-`responseMimeType: 'application/json'` + `responseSchema` gives you guaranteed JSON output. Gemini 3.5 is strict about schema conformance.
-
-## Streaming
-
-```ts
-const stream = await ai.models.generateContentStream({
-  model: 'gemini-3.5-flash',
-  contents: userMessage,
-});
-for await (const chunk of stream) {
-  process.stdout.write(chunk.text ?? '');
-}
-```
-
-For streaming from an Edge Function to React Native → [../streaming.md](../streaming.md).
-
-## Common mistakes
-
-- **Using `temperature` with Gemini 3.5** → parameter is deprecated and no longer has effect. Remove it.
-- **Numeric `thinking_budget`** → was Gemini 2.5 API. Replace with `thinking_level` string.
-- **`candidate_count > 1`** → unsupported in Gemini 3.5; always returns one candidate.
-- **Not setting `maxOutputTokens`** → the model may run up costs on open-ended prompts.
+Reviewed 2026-10-20: [thinking](https://ai.google.dev/gemini-api/docs/thinking), [text generation](https://ai.google.dev/gemini-api/docs/text-generation).

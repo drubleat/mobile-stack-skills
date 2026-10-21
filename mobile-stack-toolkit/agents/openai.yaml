@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mobile Stack Toolkit"
+  short_description: "Build and ship Expo, Flutter, and mobile integrations"
+  default_prompt: "Use $mobile-stack-toolkit to inspect my project and implement the requested change using only the relevant references."

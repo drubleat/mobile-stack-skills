@@ -1,5 +1,5 @@
 ---
-title: pg_stat diagnostics — find slow queries and bottlenecks
+title: "pg_stat diagnostics — find slow queries and bottlenecks"
 impact: MEDIUM-HIGH
 impactDescription: "pg_stat_statements identifies the exact queries consuming the most time; without it you're guessing at optimizations"
 tags: monitoring, performance, postgres, pg-stat, diagnostics
@@ -85,14 +85,16 @@ where state != 'idle'
 order by duration desc;
 ```
 
-## Reset statistics (after a schema change or index addition)
+## Statistics resets (administrative operation)
+
+Prefer snapshots/deltas. Resetting clears shared diagnostic history; do it only when deliberately establishing a new baseline.
 
 ```sql
 select pg_stat_reset();
 select pg_stat_statements_reset();
 ```
 
-Wait at least 1 hour after reset before reading stats — you need representative traffic.
+Collect representative traffic, including infrequent critical jobs; a fixed one-hour window is not sufficient for every workload.
 
 ## Supabase Dashboard shortcut
 

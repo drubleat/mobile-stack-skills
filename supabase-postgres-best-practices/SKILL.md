@@ -1,44 +1,30 @@
 ---
 name: supabase-postgres-best-practices
-version: "1.0.0"
-author: Eren Öz <eren@qoodly.com>
-description: >-
-  Production Postgres best practices for Supabase projects. Use this whenever
-  the task involves writing or reviewing SQL, PostgREST queries, RLS policies,
-  database schema, indexes, migrations, connection handling, or pg_* extensions
-  (pgvector, pg_cron, pg_net, pgmq). Triggers on phrases like "write a query",
-  "create an index", "RLS policy", "slow query", "connection pool", "vector
-  search", "scheduled job", "database security", or any mention of Supabase
-  Postgres internals. Covers query performance, connection management, security,
-  schema design, concurrency, and observability — 20+ rules with code examples.
+description: Write, review, and tune Supabase Postgres queries, RLS policies, schemas, migrations, pooling, and database extensions. Use for database work, including slow queries and tenant isolation; not general mobile UI or SDK setup.
 metadata:
-  version: "1.0.0"
-  author: "mobile-stack-toolkit"
+  version: "1.1.0"
+  author: "Eren Öz"
 ---
 
 # Supabase Postgres Best Practices
 
-20+ production rules organized by category. Each rule file has an `impact` rating — load CRITICAL and HIGH rules first for any task, then drill into specifics.
+Inspect schema, grants, policies, Postgres/extension versions, and query plans first. Read only the rules relevant to the task, typically one or two initially. Impact labels rank applicable issues; they do not require loading every CRITICAL/HIGH file.
 
-## Rule categories
+| Task | Rules |
+|---|---|
+| Slow query | [Indexes](rules/query-indexes.md), [RLS performance](rules/query-rls-performance.md), [Diagnostics](rules/monitor-pg-stat.md) |
+| Pagination / N+1 / RPC | [Pagination](rules/query-pagination.md), [N+1](rules/query-n-plus-one.md), [Functions](rules/query-functions-rpc.md) |
+| Connection errors | [Pooling](rules/conn-pooling.md), [Client configuration](rules/conn-client-config.md) |
+| Row security and roles | [Policies](rules/security-rls-patterns.md), [JWT claims](rules/security-auth-uid.md), [Server keys](rules/security-service-key.md) |
+| File access | [Storage RLS](rules/security-storage-rls.md) |
+| Schema change | [Conventions](rules/schema-conventions.md), [Indexes](rules/schema-indexes.md), [Migrations](rules/schema-migrations.md), [DDL locks](rules/lock-migrations.md) |
+| Concurrency | [Advisory locks](rules/lock-advisory.md) |
+| Maintenance | [Autovacuum](rules/monitor-autovacuum.md) |
+| Vector search | [pgvector](rules/ext-pgvector.md) |
+| Scheduled jobs | [pg_cron](rules/ext-pg-cron.md) |
+| HTTP from Postgres | [pg_net](rules/ext-pg-net.md) |
+| Queues | [pgmq](rules/ext-pgmq.md) |
 
-| Prefix | Category | Load when… |
-|---|---|---|
-| `query-*` | Query performance | Writing or reviewing SQL queries |
-| `conn-*` | Connection management | Configuring clients or seeing connection errors |
-| `security-*` | RLS + auth security | Writing RLS policies or auth logic |
-| `schema-*` | Table & index design | Designing or altering tables |
-| `lock-*` | Concurrency & locking | Seeing deadlocks or migration issues |
-| `monitor-*` | pg_stat diagnostics | Investigating slow queries or high load |
-| `ext-*` | Extensions (pgvector, pg_cron, pg_net, pgmq) | Using Postgres extensions |
+Verify version-sensitive syntax in official Supabase/PostgreSQL/extension docs before applying it. Preserve the project's conventions and migration process. Test RLS as unauthenticated and authenticated users, including another tenant; owner/service-role queries cannot prove tenant isolation. Check permissions and failure paths of SECURITY DEFINER functions. Treat EXPLAIN ANALYZE as executing the statement, including writes and side effects.
 
-## Quick routing
-
-- **Slow query** → [query-indexes.md](rules/query-indexes.md), [query-rls-performance.md](rules/query-rls-performance.md), [monitor-pg-stat.md](rules/monitor-pg-stat.md)
-- **Connection errors / pooling** → [conn-pooling.md](rules/conn-pooling.md), [conn-client-config.md](rules/conn-client-config.md)
-- **RLS / security** → [security-rls-patterns.md](rules/security-rls-patterns.md), [security-auth-uid.md](rules/security-auth-uid.md), [security-service-key.md](rules/security-service-key.md)
-- **Schema / migrations** → [schema-conventions.md](rules/schema-conventions.md), [schema-indexes.md](rules/schema-indexes.md), [lock-migrations.md](rules/lock-migrations.md)
-- **Vector search** → [ext-pgvector.md](rules/ext-pgvector.md)
-- **Scheduled jobs** → [ext-pg-cron.md](rules/ext-pg-cron.md)
-- **HTTP from Postgres** → [ext-pg-net.md](rules/ext-pg-net.md)
-- **Message queues** → [ext-pgmq.md](rules/ext-pgmq.md)
+For long work, retain only decisions, files, test results, and next actions in continuation notes. Do not copy the rules into an always-loaded instruction file. Do not deploy or reset a shared database without authorization covering that action.

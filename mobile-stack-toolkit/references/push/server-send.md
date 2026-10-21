@@ -1,121 +1,28 @@
 ---
-title: Sending push from the server
+title: "Server-side push delivery"
 impact: HIGH
-impactDescription: "Push must originate server-side to keep FCM server keys off the client; Edge Functions are the correct trigger point"
-tags: push, server, edge-functions, fcm, expo-push
+impactDescription: "Use supported APIs with explicit authorization and failure handling"
+tags: mobile, integration, correctness
 ---
 
-# Sending push from the server
+# Server-side push delivery
 
-Push sending always happens server-side — never from the mobile client (you'd expose FCM server keys). Send from an Edge Function triggered by a user action, a cron job, or a DB event.
+Use a trusted server or worker. Authenticate the initiating actor and authorize the event/recipient set; an endpoint accepting arbitrary user IDs and message bodies must not be public. Store provider credentials server-side and keep staging/production token namespaces separate.
 
-## Via Expo Push API (if using Expo Push tokens)
+Delivery workflow:
 
-```ts
-// supabase/functions/send-push/index.ts
-async function sendExpoPush(token: string, title: string, body: string, data?: object) {
-  const res = await fetch('https://exp.host/--/api/v2/push/send', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify([{ to: token, title, body, data, sound: 'default', priority: 'high' }]),
-  });
-  const { data: [result] } = await res.json();
-  if (result.status === 'error') {
-    if (result.details?.error === 'DeviceNotRegistered') {
-      // Token is stale — delete it from profiles
-      await supabase.from('profiles').update({ push_token: null }).eq('push_token', token);
-    }
-  }
-}
-```
+1. Write a stable event/job ID and intended recipients to a durable outbox/queue.
+2. Read active installation tokens for those recipients.
+3. Send bounded batches through Expo Push Service or FCM HTTP v1 with the correct token type and credentials.
+4. Check HTTP status and each provider result. Persist accepted IDs, retryable failures and permanent failures separately.
+5. Poll Expo receipts where applicable; remove only tokens specifically reported invalid. Retry transient failures with bounded backoff and provider retry hints.
 
-## Via FCM HTTP v1 API (if using FCM tokens)
+A provider acceptance is not proof of display/read. Record the distinction in metrics. Do not delete tokens for a general auth/configuration error. Deduplicate jobs and client opens; external push delivery cannot be made exactly-once merely by acknowledging a queue row.
 
-```ts
-// Requires a Google service account access token
-// Use firebase-admin SDK or raw HTTP
-import { initializeApp, cert } from 'npm:firebase-admin/app';
-import { getMessaging } from 'npm:firebase-admin/messaging';
+For database-triggered work, enqueue an outbox row transactionally. [pg_net](../supabase/pg-net.md) accepts a JSONB body, not a JSON string cast to text, and does not itself supply reliable retry. Use [queues](../supabase/queues.md) for durable processing. Avoid service-role keys in SQL settings or migrations.
 
-const app = initializeApp({
-  credential: cert(JSON.parse(Deno.env.get('FIREBASE_SERVICE_ACCOUNT')!)),
-});
+Keep payloads small and avoid private content on lock screens. Send an authorized resource identifier for the app to resolve after opening. A worker endpoint needs its own verified authentication; a cron schedule does not protect it.
 
-async function sendFCMPush(token: string, title: string, body: string, data?: Record<string, string>) {
-  await getMessaging(app).send({
-    token,
-    notification: { title, body },
-    data,                        // string values only in FCM data payload
-    android: { priority: 'high' },
-    apns: { payload: { aps: { sound: 'default' } } },
-  });
-}
-```
+## Sources
 
-Store the Firebase service account JSON in `supabase secrets set FIREBASE_SERVICE_ACCOUNT='...'`.
-
-## Triggering from a Supabase cron job
-
-```sql
--- In a migration: create a scheduled job (uses pg_cron extension)
-select cron.schedule(
-  'daily-reminder',
-  '0 9 * * *',    -- 9am UTC daily
-  $$
-    select net.http_post(
-      url := 'https://<ref>.supabase.co/functions/v1/send-daily-reminders',
-      headers := '{"Authorization": "Bearer <service-role-key>"}'::jsonb
-    )
-  $$
-);
-```
-
-Or use EAS Workflows / GitHub Actions to trigger on a schedule → [../cicd/eas-workflows.md](../cicd/eas-workflows.md).
-
-## Triggering from a DB event (Postgres trigger)
-
-Send a push when a new row is inserted (e.g. a new message in a chat):
-
-```sql
-create function notify_new_message() returns trigger
-language plpgsql security definer as $$
-begin
-  perform net.http_post(
-    url := 'https://<ref>.supabase.co/functions/v1/send-push',
-    body := json_build_object('recipient_id', new.recipient_id, 'message', new.content)::text,
-    headers := '{"Content-Type": "application/json", "Authorization": "Bearer <service-role-key>"}'
-  );
-  return new;
-end; $$;
-
-create trigger on_new_message
-  after insert on public.messages
-  for each row execute procedure notify_new_message();
-```
-
-Requires the `pg_net` extension (enabled by default in Supabase).
-
-## Fan-out: send to multiple users
-
-```ts
-// In Edge Function: fetch all tokens for a user segment then batch send
-const { data: users } = await supabase
-  .from('profiles')
-  .select('push_token')
-  .not('push_token', 'is', null)
-  .eq('subscription_status', 'active');   // example filter
-
-const tokens = users.map(u => u.push_token).filter(Boolean);
-
-// Expo: batch up to 100 per request
-for (let i = 0; i < tokens.length; i += 100) {
-  const batch = tokens.slice(i, i + 100).map(token => ({
-    to: token, title, body, data, sound: 'default',
-  }));
-  await fetch('https://exp.host/--/api/v2/push/send', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(batch),
-  });
-}
-```
+Reviewed 2026-10-20: [Expo sends/receipts](https://docs.expo.dev/push-notifications/sending-notifications/), [FCM HTTP v1](https://firebase.google.com/docs/cloud-messaging/migrate-v1).

@@ -1,203 +1,103 @@
-<div align="center">
+# Mobile Stack Skills
 
-# mobile-stack-skills
+On-demand mobile development references for **Codex and Claude Code**: Expo/React Native, Flutter, Supabase, Firebase, RevenueCat, AI integration, notifications, testing, and releases.
 
-**Claude Code Agent Skills for shipping AI-first mobile apps — fast.**
-
-Production-grade, opinionated playbooks that give Claude deep, current knowledge of the modern mobile stack:
-**Expo / React Native · Flutter · Supabase · Firebase · RevenueCat · OpenAI · Gemini.**
-
-![License](https://img.shields.io/badge/license-MIT-blue)
-![Skills](https://img.shields.io/badge/skills-2-6366f1)
-![Reference files](https://img.shields.io/badge/reference%20files-147-22c55e)
-![Stack](https://img.shields.io/badge/Expo%20SDK-56-000020)
-
-</div>
-
----
-
-## Why this exists
-
-Ask a general-purpose model to "add a paywall to my Expo app" and you get plausible-but-stale advice: deprecated APIs, wrong command order, a leaked API key in the client bundle. This repo fixes that.
-
-It's a set of [Claude Code Agent Skills](https://docs.anthropic.com/claude-code) — structured reference files Claude loads **on demand** while it works. Instead of generic suggestions, Claude pulls the exact file for what you're building and gives you the current SDK version, the correct sequence of commands, and the production pattern that doesn't fall over.
-
-The goal: **go from idea to App Store without Claude having to guess.**
-
----
-
-## What's inside
-
-| Skill | What it covers | Size |
-|---|---|---|
-| [`mobile-stack-toolkit`](mobile-stack-toolkit/) | The full mobile stack — Expo/RN + Flutter + Supabase + Firebase + RevenueCat + AI + push + store + CI/CD | 125 files |
-| [`supabase-postgres-best-practices`](supabase-postgres-best-practices/) | Deep Postgres rules — indexes, RLS, pooling, migrations, pgvector, pg_cron, pgmq | 22 rules |
-
-The second skill stands alone — it's useful for **any** Supabase project, mobile or web.
-
----
-
-## How Claude actually uses it (and why it stays fast)
-
-These skills are built on **progressive disclosure**, so the size never bloats your context:
-
-```
-SKILL.md  ──►  references/<domain>/_index.md  ──►  references/<domain>/<topic>.md
-(the map)        (the router for one domain)         (the deep reference — loaded only when needed)
-```
-
-1. Claude reads the lightweight skill **description** at all times.
-2. When your task matches, it loads `SKILL.md` (the map).
-3. It routes to the relevant domain's `_index.md`, then opens **only the 1–2 leaf files** it needs.
-
-So a "add a paywall" task loads ~3 files — the other 120+ cost **zero tokens** until they're relevant. Depth without drag.
-
----
-
-## Coverage
-
-**`mobile-stack-toolkit`** — 11 domains:
-
-| Domain | Highlights |
+| Skill | Scope |
 |---|---|
-| **Expo / React Native** | SDK 56, EAS Build, OTA, dev builds, **Expo Router** (navigation + `Stack.Protected` auth), **forms** (react-hook-form + zod), **image pipeline** (pick → upload → cache), NativeWind v4, TanStack Query v5, Zustand + MMKV, Sentry, PostHog |
-| **Supabase** | Postgres, Auth, Edge Functions, RLS, Realtime, Storage, pgvector, queues, MCP |
-| **AI** | OpenAI Responses API (gpt-5.x), Gemini 3.5, ElevenLabs TTS, **edge-proxy architecture**, streaming, structured output, guardrails |
-| **Monetization** | RevenueCat v10, Superwall (paywall A/B testing), entitlements, webhooks |
-| **Push** | FCM, APNs, Expo Push, handlers across all app states, deep linking |
-| **Firebase** | Crashlytics, Analytics, Remote Config, App Check, Firebase AI Logic, Firestore |
-| **Flutter** | Riverpod 3.x, go_router 17.x, supabase_flutter, purchases_flutter, dio, testing, CI/CD |
-| **App / Play Store** | submission, ASO, permissions, rejection red flags |
-| **CI/CD** | EAS Workflows, GitHub Actions, Maestro E2E testing, secrets |
-| **Playbooks** | zero-to-store sequence, AI app recipe, cross-cutting gotchas |
-| **Packages** | Dart/Flutter package reference library |
+| [mobile-stack-toolkit](mobile-stack-toolkit/SKILL.md) | Mobile implementation and integration across 11 domains |
+| [supabase-postgres-best-practices](supabase-postgres-best-practices/SKILL.md) | Standalone Postgres queries, RLS, migrations, pooling, and extensions |
 
-**`supabase-postgres-best-practices`** — 7 rule categories: query performance (incl. 100× RLS speedup), connection pooling, RLS/auth security, schema & migrations, locking & concurrency, `pg_stat` diagnostics, and extensions (pgvector / pg_cron / pg_net / pgmq).
+Each skill works independently. The toolkit can suggest the Postgres companion when installed, but does not require sibling files.
 
----
+## Context-efficient use
 
-## Getting started
+```text
+name + description → SKILL.md → relevant domain index → needed topic
+```
 
-Claude Code discovers skills from a `skills/` directory — either personal (`~/.claude/skills/`, available in every project) or per-project (`<project>/.claude/skills/`). Each skill is a folder containing a `SKILL.md`. So installing means putting these two skill folders into one of those locations.
+Only the descriptions are needed for discovery. Once selected, the short entrypoint routes to the task's references. Start with one or two relevant leaves, and load more when needed; skip the index if the exact leaf is known. Do not include the entire skill or all references in AGENTS.md/CLAUDE.md.
 
-### 1. Clone
+`impact` labels help prioritize relevant issues; agents do not automatically interpret them as a requirement to load files. Unopened reference bodies are not loaded by this workflow, but actual token use depends on the agent and tools. There is no fixed percentage or “zero overhead” guarantee.
+
+## Install
 
 ```bash
 git clone https://github.com/drubleat/mobile-stack-skills.git
 cd mobile-stack-skills
 ```
 
-### 2. Install the skills
+Choose a target explicitly. The installer uses Python 3.10+ with no third-party dependencies, copies both skills by default, and refuses to overwrite any existing skill.
 
-**Option A — personal (recommended, available across all your projects):**
-
-```bash
-mkdir -p ~/.claude/skills
-cp -R mobile-stack-toolkit ~/.claude/skills/
-cp -R supabase-postgres-best-practices ~/.claude/skills/
-```
-
-**Option B — single project only:**
+**Codex — per project:**
 
 ```bash
-mkdir -p /path/to/your-project/.claude/skills
-cp -R mobile-stack-toolkit /path/to/your-project/.claude/skills/
-cp -R supabase-postgres-best-practices /path/to/your-project/.claude/skills/
+python3 scripts/install_skills.py --target /path/to/project/.agents/skills
 ```
 
-> If `~/.claude/skills/` didn't exist before, restart Claude Code once so it starts watching the new directory. After that, edits and additions are picked up live.
->
-> Prefer to keep this repo as the single source of truth? Symlink instead of copying (`ln -s "$(pwd)/mobile-stack-toolkit" ~/.claude/skills/mobile-stack-toolkit`). Note that symlinks pointing outside your project may trigger per-file read permission prompts — copying avoids them.
+**Codex — personal:**
 
-### 3. Verify
-
-Open Claude Code and type `/` — you should see `mobile-stack-toolkit` and `supabase-postgres-best-practices` in the skill list.
-
-### 4. Just build
-
-Ask naturally — Claude loads the right reference automatically, no file paths needed:
-
-> *"Set up an Expo + Supabase app with email auth and a RevenueCat paywall."*
-> *"Add a vector search over my documents table."*
-> *"Why are my Firestore security rules letting updates through?"*
-
----
-
-## Goal
-
-Build the most comprehensive, accurate, and up-to-date Claude Code skill set for mobile development — covering every tool in the modern AI-first stack with enough depth that Claude can take you from idea to launch without looking anything up.
-
-This is a **living document**. SDKs change, APIs break, new tools emerge. Community contributions are what keep it current.
-
----
-
-## Contributing — this repo gets better with you
-
-This is a community project, and the whole point is that no single person can keep an entire mobile stack current. **If you've ever hit a wrong command, a deprecated API, or a missing tool while building — you already know something worth contributing.** Big or small, it's welcome.
-
-You don't need to be an expert or write a whole new domain. Some of the most useful contributions are tiny:
-
-- 🔧 **Spotted something stale?** A bumped SDK version, a renamed method, a model that no longer exists — fix the one line.
-- 🪲 **A code example didn't work for you?** Open an issue (or a PR) — that's a real bug and others will hit it too.
-- 🧭 **Missing a tool you use every day?** Add a reference file for it. If it helped you, it'll help someone else.
-- 📦 **Know a package well?** Add it under `mobile-stack-toolkit/references/packages/`.
-- 💡 **Just have an idea?** Open an issue and let's talk it through — proposals are contributions too.
-
-No contribution is too small. A single corrected version number genuinely keeps the skill useful for everyone who clones it after you.
-
-### How to contribute
-
-1. **Fork** the repo (your fork shows up as your own copy — go wild)
-2. Create a branch for your change:
-   ```bash
-   git checkout -b fix/expo-sdk-57-updates
-   ```
-3. Make your edit. For new reference files, follow [`mobile-stack-toolkit/_template.md`](mobile-stack-toolkit/_template.md) and add the frontmatter (`title`, `impact`, `impactDescription`, `tags`).
-4. If you added a file, add it to that domain's `_index.md` router table so Claude can find it.
-5. **Open a Pull Request** describing what changed and why.
-
-That's it — your PR lands in the review queue, we go over it together, and once it looks good it gets merged in. First-time PR? Even better — open it and we'll help you polish it.
-
-> **One house rule:** don't write from memory. Every SDK version, command, and API in this repo is verified against official docs at write time. If you're unsure, check the source first — accuracy is the entire value of this project.
-
-### Frontmatter
-
-Every reference file starts with:
-
-```yaml
----
-title: Short, action-oriented title
-impact: CRITICAL|HIGH|MEDIUM-HIGH|MEDIUM|LOW-MEDIUM|LOW
-impactDescription: "One sentence: the quantified benefit or the risk prevented"
-tags: comma, separated, lowercase, tags
----
+```bash
+python3 scripts/install_skills.py --target ~/.agents/skills
 ```
 
-`impact` is how Claude prioritizes which files to load — get it right.
+For environments that use the legacy `~/.codex/skills` location, use that location as `--target` instead. Avoid duplicate installations in multiple discovery roots. See [official Codex skill documentation](https://learn.chatgpt.com/docs/build-skills).
 
----
+**Claude Code:**
 
-## Stack versions (as of v1.0.0)
+```bash
+python3 scripts/install_skills.py --target ~/.claude/skills
+# Or: --target /path/to/project/.claude/skills
+```
 
-| Technology | Version |
+Install only one skill by adding `--skill mobile-stack-toolkit` or `--skill supabase-postgres-best-practices`. To update, review changes and move the old installed directory to a backup outside the agent's discovery paths, then install the replacement. Local edits are never silently overwritten.
+
+Start a new session if the skill list does not refresh. In Codex explicitly invoke `$mobile-stack-toolkit` or `$supabase-postgres-best-practices`, or ask a relevant question naturally. In Claude Code use the skill picker/slash invocation supported by your version.
+
+Example requests:
+
+- “Use $mobile-stack-toolkit to add a RevenueCat paywall to this existing Expo app.”
+- “Review this Flutter auth and notification flow.”
+- “Use $supabase-postgres-best-practices to verify tenant isolation in these policies.”
+
+Installation does not configure accounts, connect MCP servers, deploy functions, or grant permission to publish an app.
+
+## Coverage
+
+| Domain | Topics |
 |---|---|
-| Expo SDK | 56 (React Native 0.85) |
-| react-native-purchases (RevenueCat) | v10.x |
-| @react-native-firebase | v21.x |
-| react-hook-form / zod | v7.79 / v4.x |
-| flutter_riverpod / go_router | 3.3.2 / 17.3.0 |
-| supabase_flutter / purchases_flutter | 2.14.2 / 10.2.3 |
-| OpenAI API | Responses API (gpt-5.x) |
-| Gemini API | 3.5 (gemini-3.5-flash) |
+| Expo / React Native | Setup, builds, OTA, routing, forms, media, styling, state, diagnostics |
+| Flutter | Setup, routing, networking, storage, UI, integrations, tests, CI |
+| Supabase | Auth, RLS, schema, functions, storage, realtime, extensions |
+| Firebase | Auth, Firestore, Storage, App Check, AI Logic, FCM, diagnostics |
+| Monetization | RevenueCat, entitlements, webhook reconciliation, Superwall |
+| AI | Provider adapters, text, images, audio, tools, streaming, quotas |
+| Push | Expo Push, FCM, APNs, routing, device tokens, server delivery |
+| Stores | Submission, privacy, metadata, review preparation |
+| CI/CD | EAS, GitHub Actions, migrations, secrets, Maestro |
+| Playbooks | New-app sequence and cross-component troubleshooting |
+| Dart packages | Focused package API references |
 
----
+## Version and evidence policy
+
+Examples target API families, not an automatically maintained “latest stack.” Existing version pins are historical examples unless a specific review says otherwise. Inspect the application's lockfile and official migration guides before using them. Do not upgrade a project merely to match this repository.
+
+Model IDs, pricing, store rules, and platform requirements change. Check the linked official source at implementation time. Updated references distinguish workflow sketches from runnable assets. A successful structural check does not prove an SDK sample works on a physical device or a live service.
+
+The [audit notes](AUDIT.md) record corrections and validation limits. New skill proposals are kept separate from this maintenance pass.
+
+## Contribute and validate
+
+Keep shared instructions short; put conditional details in linked references. Use [the reference template](mobile-stack-toolkit/_template.md), add a domain index link, and cite an official source with the review date. Avoid unsourced numerical performance claims and absolute rules that override the user's stack or scope.
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python scripts/validate_skills.py
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+Validation checks YAML, metadata, local links, independent installation paths, reference reachability, and entrypoint context budgets. CI also exercises the quota asset against a disposable PostgreSQL cluster. To run that integration locally, put a complete PostgreSQL installation on PATH and set `RUN_POSTGRES_TESTS=1` when running unittest. No existing database is used. With Dart 3.12.2 available, run `python3 scripts/check_dart_snippets.py`. It extracts the documented SSE parser, resolves the committed fixture lockfile, analyzes selected SDK calls, and runs five loopback HTTP tests; it does not call a paid provider. CI runs the same checks. Use meaningful platform/runtime checks for other changed examples and state what was not run.
 
 ## License
 
-[MIT](LICENSE) — free to use, modify, and distribute.
-
-## Author
-
-**Eren Öz** — [eren@qoodly.com](mailto:eren@qoodly.com)
-
-*Contributions and feedback welcome via GitHub Issues and Pull Requests.*
+[MIT](LICENSE). Author: **Eren Öz** — [eren@qoodly.com](mailto:eren@qoodly.com).

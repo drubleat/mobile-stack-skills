@@ -1,5 +1,5 @@
 ---
-title: Animations: lottie + flutter_animate
+title: "Animations: lottie + flutter_animate"
 impact: MEDIUM
 impactDescription: "lottie for designer-authored animations; flutter_animate for code-driven micro-interactions with chained effects"
 tags: flutter, animation, lottie, flutter_animate

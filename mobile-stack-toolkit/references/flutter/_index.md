@@ -1,5 +1,5 @@
 ---
-title: Flutter — domain index
+title: "Flutter — domain index"
 impact: MEDIUM-HIGH
 impactDescription: "Routes to project setup, navigation, Supabase, push, RevenueCat, AI, UI, animations, networking, storage, and CI/CD"
 tags: flutter, dart, index
@@ -9,27 +9,7 @@ tags: flutter, dart, index
 
 Flutter files in this domain cover production Flutter app development with the same tech stack: Supabase, Firebase, RevenueCat, and AI integration via Edge Functions.
 
-## Package versions (pub.dev, 2026)
-
-| Package | Version | Purpose |
-|---|---|---|
-| `flutter_riverpod` | 3.3.2 | State management |
-| `go_router` | 17.3.0 | Navigation |
-| `dio` | 5.9.2 | HTTP client |
-| `supabase_flutter` | 2.14.2 | Supabase SDK |
-| `purchases_flutter` | 10.2.3 | RevenueCat |
-| `firebase_core` | 4.10.0 | Firebase base |
-| `firebase_messaging` | 16.3.0 | FCM push |
-| `firebase_crashlytics` | 5.2.3 | Crash reporting |
-| `firebase_analytics` | 11.4.2 | Analytics |
-| `firebase_remote_config` | 6.5.2 | Feature flags |
-| `google_maps_flutter` | 2.17.1 | Maps |
-| `lottie` | 3.3.3 | Lottie animations |
-| `flutter_animate` | 4.5.2 | UI animations |
-| `freezed` | 3.2.5 | Immutable models |
-| `permission_handler` | 12.0.3 | Runtime permissions |
-| `dio` | 5.9.2 | Networking |
-| `cached_network_image` | latest | Image caching |
+Resolve packages against the project's Flutter/Dart SDK and commit its lockfile. The domain index is a router, not a synchronized package version matrix. Preserve existing state/navigation choices unless a migration is requested.
 
 ## Files in this domain
 

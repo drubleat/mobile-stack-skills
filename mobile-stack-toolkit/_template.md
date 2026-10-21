@@ -1,5 +1,5 @@
 ---
-title: Reference file template
+title: "Reference file template"
 impact: LOW
 impactDescription: "Template for adding new reference files; ensures consistent frontmatter and structure across all domains"
 tags: meta, template, contributing
@@ -21,7 +21,7 @@ Copy this template when adding a new reference file.
 ---
 title: Short, action-oriented title (what does this cover?)
 impact: CRITICAL|HIGH|MEDIUM-HIGH|MEDIUM|LOW-MEDIUM|LOW
-impactDescription: "One sentence: quantified benefit or risk prevented. Examples: '100x faster queries', 'missing this causes App Store rejection', 'eliminates 80% of push notification debugging'"
+impactDescription: "One sentence: quantified benefit or risk prevented. Describe the failure prevented; quantify only with a relevant benchmark/source"
 tags: comma, separated, tags, lowercase
 ---
 ```
@@ -98,5 +98,6 @@ dependencies:
 ## After adding a file
 
 1. Add a row to the domain's `_index.md` router table
-2. Add a row to `_sections.md` if it changes the file count
-3. Check if `SKILL.md` should route to it directly
+2. Keep the contributor inventory consistent; run the validator
+3. Cite official documentation and record the review date/scope
+4. Run the validator; verify that the reference is reachable from SKILL.md
